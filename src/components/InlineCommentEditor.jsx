@@ -55,9 +55,7 @@ export default function InlineCommentEditor({ avatar, userName, fileName, lineNu
           ) : (
             <div className="ice-preview">
               {body.trim() ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {body}
-                </ReactMarkdown>
+                <div dangerouslySetInnerHTML={{ __html: body }} />
               ) : (
                 <span className="ice-preview-empty">Nothing to preview</span>
               )}
