@@ -882,6 +882,43 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
   }
 })
 
+// Summarize review findings - lightweight endpoint
+app.post('/api/repos/:owner/:repo/pulls/:pull_number/review/summarize', async (req, res) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const { items } = req.body
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Items array is required' })
+  }
+
+  // Build a compact list for the model - just severity + path + first line of body
+  const compactList = items.slice(0, 30).map((item: any, i: number) => {
+    const firstLine = (item.body || '').split('\n')[0].slice(0, 120)
+    return `${i + 1}. [${item.severity}] ${item.path}: ${firstLine}`
+  }).join('\n')
+
+  try {
+    const { generateText } = await import('ai')
+
+    const result = await generateText({
+      model: anthropic('claude-sonnet-4-20250514'),
+      system: 'You summarize code review findings in 1-2 concise sentences. Be specific about the most important issues. Do not use bullet points. Do not start with "The review" or "This review". Just state the findings directly.',
+      prompt: `Summarize these ${items.length} review findings:\n${compactList}`,
+      maxTokens: 150,
+    })
+
+    res.json({ summary: result.text })
+  } catch (error) {
+    console.error('Summary error:', error)
+    res.status(500).json({ error: 'Failed to generate summary' })
+  }
+})
+
 // Get PR timeline/comments (issue comments + review comments + events)
 app.get('/api/repos/:owner/:repo/pulls/:pull_number/timeline', async (req, res) => {
   const authHeader = req.headers.authorization

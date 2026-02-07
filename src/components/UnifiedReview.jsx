@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, Fragment } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
 import { SpinnerGap, Check, CaretDown, CaretUp, ArrowLeft, ArrowUp, ChatCircle, Wrench, X } from '@phosphor-icons/react'
@@ -205,6 +205,10 @@ export default function UnifiedReview({
   const [showPendingView, setShowPendingView] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
+  const [reviewSummary, setReviewSummary] = useState(null)
+  const [reviewDuration, setReviewDuration] = useState(null)
+  const reviewStartTimeRef = useRef(null)
+  const summaryFetchedRef = useRef(false)
 
   const getToken = () => localStorage.getItem('github_pat')
   
@@ -257,7 +261,8 @@ export default function UnifiedReview({
     messages: reviewMessages, 
     sendMessage: sendReviewMessage, 
     status: reviewStatus, 
-    error: reviewError 
+    error: reviewError,
+    stop: stopReview,
   } = useChat({
     transport: reviewTransport || undefined,
   })
@@ -287,6 +292,43 @@ export default function UnifiedReview({
     }
     return comments
   }, [messages])
+
+  // Record duration and fetch summary when the review completes
+  useEffect(() => {
+    if (!isAskMode && hasStarted && !isLoading && !summaryFetchedRef.current) {
+      // Calculate duration
+      if (reviewStartTimeRef.current) {
+        const elapsed = Math.round((Date.now() - reviewStartTimeRef.current) / 1000)
+        setReviewDuration(elapsed)
+      }
+
+      if (reviewComments.length === 0) return
+      summaryFetchedRef.current = true
+      const token = getToken()
+      if (!token) return
+
+      // Send only compact data: path, severity, first line of body
+      const items = reviewComments.map(c => ({
+        path: c.path,
+        severity: c.severity,
+        body: c.body,
+      }))
+
+      fetch(`${API_URL}/api/repos/${owner}/${repo}/pulls/${prNumber}/review/summarize`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ items }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.summary) setReviewSummary(data.summary)
+        })
+        .catch(() => {})
+    }
+  }, [isAskMode, hasStarted, isLoading, reviewComments, owner, repo, prNumber])
 
   const handleApplyComment = useCallback((commentId, comment) => {
     setAppliedComments(prev => new Set([...prev, commentId]))
@@ -320,6 +362,7 @@ export default function UnifiedReview({
     } else {
       // Review mode - use review endpoint
       setHasStarted(true)
+      reviewStartTimeRef.current = Date.now()
       sendReviewMessage({ 
         text: input.trim() 
           ? `Review with focus: ${selectedLens.id}. Notes: ${input}` 
@@ -350,6 +393,10 @@ export default function UnifiedReview({
     setShowPendingView(false)
     setSubmitComment('')
     setReviewType('comment')
+    setReviewSummary(null)
+    setReviewDuration(null)
+    reviewStartTimeRef.current = null
+    summaryFetchedRef.current = false
   }
 
   // Submit review with all pending comments
@@ -387,7 +434,7 @@ export default function UnifiedReview({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            body: submitComment || undefined,
+            body: submitComment || (reviewType === 'request_changes' ? 'Changes requested.' : undefined),
             event: eventMap[reviewType],
             comments: comments.length > 0 ? comments : undefined
           })
@@ -411,8 +458,46 @@ export default function UnifiedReview({
     }
   }
 
-  // Render lens selector
-  const lensSelector = (
+  // Count visible (non-dismissed, non-applied) comments
+  const visibleCommentCount = reviewComments.filter(
+    c => !dismissedComments.has(c.id) && !appliedComments.has(c.id)
+  ).length
+
+  // Render lens selector OR review status bar
+  const lensSelector = hasStarted ? (
+    <div className="review-status-bar">
+      {isLoading ? (
+        <div className="review-status-row">
+          <SpinnerGap size={16} className="spinning review-status-spinner" />
+          <span className="review-status-text">Reading the pull request...</span>
+          <button className="review-status-stop" onClick={stopReview}>
+            Stop
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="review-status-row">
+            <span className="review-status-heading">
+              Found {reviewComments.length} {reviewComments.length === 1 ? 'issue' : 'issues'}
+              {reviewDuration != null && (
+                <span className="review-status-duration">
+                  {' '}in {reviewDuration < 60
+                    ? `${reviewDuration}s`
+                    : `${Math.floor(reviewDuration / 60)}m ${reviewDuration % 60}s`}
+                </span>
+              )}
+            </span>
+            <button className="review-status-clear" onClick={handleClearLens}>
+              <X size={14} />
+            </button>
+          </div>
+          {reviewSummary && (
+            <p className="review-status-summary">{reviewSummary}</p>
+          )}
+        </>
+      )}
+    </div>
+  ) : (
     <div className="lens-selector-unified">
       <Popover className="lens-popover">
         <PopoverButton className="lens-dropdown-trigger">
@@ -715,11 +800,11 @@ export default function UnifiedReview({
                 </Fragment>
               ))}
 
-              {/* Loading state */}
-              {isLoading && messages.length === 0 && (
+              {/* Loading state (Ask mode only) */}
+              {isAskMode && isLoading && messages.length === 0 && (
                 <div className="review-loading">
                   <SpinnerGap size={24} className="spinning" />
-                  <span>{isAskMode ? 'Thinking...' : 'Starting review...'}</span>
+                  <span>Thinking...</span>
                 </div>
               )}
 

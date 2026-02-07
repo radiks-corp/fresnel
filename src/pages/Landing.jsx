@@ -1,45 +1,12 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useAuth } from '../hooks/useAuth.jsx'
 import '../landing.css'
 import tahoeWallpaper from '../tahoe_wallpaper.jpg'
 import dockImage from '../Dock.png'
+import screenshotImg from '../screenshot.png'
 
 function Landing() {
   const [expandedCard, setExpandedCard] = useState(null)
-  const [showPatModal, setShowPatModal] = useState(false)
-  const [patInput, setPatInput] = useState('')
-  const [patError, setPatError] = useState('')
-  const [patLoading, setPatLoading] = useState(false)
-  const { login, isAuthenticated } = useAuth()
-  const navigate = useNavigate()
-
-  const handleGetStarted = () => {
-    if (isAuthenticated) {
-      navigate('/app')
-    } else {
-      setShowPatModal(true)
-    }
-  }
-
-  const handlePatSubmit = async (e) => {
-    e.preventDefault()
-    if (!patInput.trim()) {
-      setPatError('Please enter a token')
-      return
-    }
-    setPatLoading(true)
-    setPatError('')
-    const success = await login(patInput.trim())
-    setPatLoading(false)
-    if (success) {
-      setShowPatModal(false)
-      navigate('/app')
-    } else {
-      setPatError('Invalid token. Make sure it has repo access.')
-    }
-  }
 
   const handleVideoHover = (e, play) => {
     const video = e.currentTarget.querySelector('video')
@@ -80,9 +47,7 @@ function Landing() {
           <div className="nav-links">
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
-            <button className="btn-primary" onClick={handleGetStarted}>
-              {isAuthenticated ? 'Open App' : 'Sign in with GitHub'}
-            </button>
+            <button className="btn-primary">Join the Waitlist</button>
           </div>
         </div>
       </nav>
@@ -96,19 +61,14 @@ function Landing() {
           <h1>Review code at light speed</h1>
           <p className="subtitle">The complete AI suite for code review.</p>
           <div className="buttons">
-            <button className="btn-primary" onClick={handleGetStarted}>
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style={{ marginRight: '8px' }}>
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-              </svg>
-              {isAuthenticated ? 'Open App' : 'Sign in with GitHub'}
-            </button>
+            <button className="btn-primary">Join the Waitlist</button>
             <button className="btn-secondary">Watch Demo</button>
           </div>
         </section>
 
         <section className="screenshot">
           <div className="screenshot-box">
-            <span>App Screenshot</span>
+            <img src={screenshotImg} alt="Fresnel app screenshot" />
           </div>
         </section>
 
@@ -140,7 +100,7 @@ function Landing() {
                 layout
               >
                 <video 
-                  src="https://www.apple.com/105/media/us/mac/family/2024/b0016dd9-dee0-4ad3-8391-26451ebb3596/anim/welcome/large.mp4" 
+                  src="/lens.mp4" 
                   muted 
                   loop 
                   playsInline
@@ -180,7 +140,7 @@ function Landing() {
                 layout
               >
                 <video 
-                  src="https://www.apple.com/105/media/us/mac/family/2024/b0016dd9-dee0-4ad3-8391-26451ebb3596/anim/welcome/large.mp4" 
+                  src="/vibe-check.mp4" 
                   muted 
                   loop 
                   playsInline
@@ -220,7 +180,7 @@ function Landing() {
                 layout
               >
                 <video 
-                  src="https://www.apple.com/105/media/us/mac/family/2024/b0016dd9-dee0-4ad3-8391-26451ebb3596/anim/welcome/large.mp4" 
+                  src="/sends-to-github.mp4" 
                   muted 
                   loop 
                   playsInline
@@ -343,9 +303,7 @@ function Landing() {
 
         <section className="bottom-cta">
           <p>Code review doesn't have to be a chore.</p>
-          <button className="btn-primary" onClick={handleGetStarted}>
-            {isAuthenticated ? 'Open App' : 'Get Started with GitHub'}
-          </button>
+          <button className="btn-primary">Join the Waitlist</button>
         </section>
 
       </main>
@@ -354,44 +312,6 @@ function Landing() {
         <p>© 2026 Fresnel</p>
       </footer>
 
-      {/* PAT Modal */}
-      {showPatModal && (
-        <div className="pat-modal-overlay" onClick={() => setShowPatModal(false)}>
-          <div className="pat-modal" onClick={e => e.stopPropagation()}>
-            <h2>Connect to GitHub</h2>
-            <p className="pat-modal-desc">
-              Enter your GitHub Personal Access Token with <code>repo</code> scope.
-            </p>
-            <form onSubmit={handlePatSubmit}>
-              <input
-                type="password"
-                className="pat-input"
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                value={patInput}
-                onChange={e => setPatInput(e.target.value)}
-                autoFocus
-              />
-              {patError && <p className="pat-error">{patError}</p>}
-              <div className="pat-modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setShowPatModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary" disabled={patLoading}>
-                  {patLoading ? 'Connecting...' : 'Connect'}
-                </button>
-              </div>
-            </form>
-            <a 
-              href="https://github.com/settings/tokens/new?scopes=repo&description=Fresnel" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="pat-create-link"
-            >
-              Create a new token →
-            </a>
-          </div>
-        </div>
-      )}
     </>
   )
 }
