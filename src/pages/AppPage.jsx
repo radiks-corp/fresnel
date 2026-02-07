@@ -186,6 +186,11 @@ function AppPage() {
   // Check if running in Electron
   const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron
 
+  // Keep viewed files state in sync on every render
+  useEffect(() => {
+    setViewedFiles({ ...viewedFiles })
+  })
+
   // Update URL when repo/PR selection changes
   const updateUrl = useCallback((repo, pr) => {
     if (repo && pr) {
