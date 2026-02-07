@@ -41,7 +41,11 @@ function Landing() {
       <nav>
         <div className="nav-inner">
           <a href="/" className="logo">
-            <div className="logo-mark"></div>
+            <svg className="logo-mark" width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <circle cx="12.0667" cy="11.9999" r="6.6" stroke="currentColor" strokeWidth="2"/>
+              <circle cx="12.0667" cy="12" r="9.4" stroke="currentColor" strokeWidth="1.33333"/>
+              <circle cx="12" cy="12" r="11.5" stroke="currentColor"/>
+            </svg>
             Fresnel
           </a>
           <div className="nav-links">

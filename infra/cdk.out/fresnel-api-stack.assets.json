@@ -1,0 +1,21 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "f0401662fbe49f934a27b5faab05180d1370c56a69c247d39edd255ed4cd088b": {
+      "displayName": "fresnel-api-stack Template",
+      "source": {
+        "path": "fresnel-api-stack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "821814520706-us-east-1-ad3f3fb0": {
+          "bucketName": "cdk-hnb659fds-assets-821814520706-us-east-1",
+          "objectKey": "f0401662fbe49f934a27b5faab05180d1370c56a69c247d39edd255ed4cd088b.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::821814520706:role/cdk-hnb659fds-file-publishing-role-821814520706-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

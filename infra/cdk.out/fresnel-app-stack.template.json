@@ -1,0 +1,318 @@
+{
+ "Resources": {
+  "fresnelappbucketF297BBF7": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketName": "fresnel-app",
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/fresnel-app-bucket/Resource"
+   }
+  },
+  "fresnelappbucketPolicy7A65355C": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "fresnelappbucketF297BBF7"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "CanonicalUser": {
+         "Fn::GetAtt": [
+          "appoai40903D4C",
+          "S3CanonicalUserId"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "fresnelappbucketF297BBF7",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "fresnelappbucketF297BBF7",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": "s3:GetObject",
+       "Effect": "Allow",
+       "Principal": {
+        "CanonicalUser": {
+         "Fn::GetAtt": [
+          "appoai40903D4C",
+          "S3CanonicalUserId"
+         ]
+        }
+       },
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          {
+           "Fn::GetAtt": [
+            "fresnelappbucketF297BBF7",
+            "Arn"
+           ]
+          },
+          "/*"
+         ]
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/fresnel-app-bucket/Policy/Resource"
+   }
+  },
+  "appoai40903D4C": {
+   "Type": "AWS::CloudFront::CloudFrontOriginAccessIdentity",
+   "Properties": {
+    "CloudFrontOriginAccessIdentityConfig": {
+     "Comment": "OAI for fresnel app S3 bucket"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/app-oai/Resource"
+   }
+  },
+  "appdistribution1E0367B2": {
+   "Type": "AWS::CloudFront::Distribution",
+   "Properties": {
+    "DistributionConfig": {
+     "Aliases": [
+      "app.reviewgpt.ca"
+     ],
+     "CustomErrorResponses": [
+      {
+       "ErrorCachingMinTTL": 300,
+       "ErrorCode": 404,
+       "ResponseCode": 200,
+       "ResponsePagePath": "/index.html"
+      }
+     ],
+     "DefaultCacheBehavior": {
+      "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+      "Compress": true,
+      "ResponseHeadersPolicyId": "67f7725c-6f97-4210-82d7-5512b31e9d03",
+      "TargetOriginId": "fresnelappstackappdistributionOrigin1D393AFDA",
+      "ViewerProtocolPolicy": "redirect-to-https"
+     },
+     "DefaultRootObject": "index.html",
+     "Enabled": true,
+     "HttpVersion": "http2and3",
+     "IPV6Enabled": true,
+     "Origins": [
+      {
+       "DomainName": {
+        "Fn::GetAtt": [
+         "fresnelappbucketF297BBF7",
+         "RegionalDomainName"
+        ]
+       },
+       "Id": "fresnelappstackappdistributionOrigin1D393AFDA",
+       "S3OriginConfig": {
+        "OriginAccessIdentity": {
+         "Fn::Join": [
+          "",
+          [
+           "origin-access-identity/cloudfront/",
+           {
+            "Ref": "appoai40903D4C"
+           }
+          ]
+         ]
+        }
+       }
+      }
+     ],
+     "PriceClass": "PriceClass_100",
+     "Restrictions": {
+      "GeoRestriction": {
+       "Locations": [
+        "SY",
+        "CU",
+        "IR",
+        "KP",
+        "RU"
+       ],
+       "RestrictionType": "blacklist"
+      }
+     },
+     "ViewerCertificate": {
+      "AcmCertificateArn": {
+       "Fn::ImportValue": "fresnel-certificates-stack:ExportsOutputReffresnelglobalcertificateF353F79E1D549FCA"
+      },
+      "MinimumProtocolVersion": "TLSv1.2_2021",
+      "SslSupportMethod": "sni-only"
+     }
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/app-distribution/Resource"
+   }
+  },
+  "appaliasDC4D1AC8": {
+   "Type": "AWS::Route53::RecordSet",
+   "Properties": {
+    "AliasTarget": {
+     "DNSName": {
+      "Fn::GetAtt": [
+       "appdistribution1E0367B2",
+       "DomainName"
+      ]
+     },
+     "HostedZoneId": {
+      "Fn::FindInMap": [
+       "AWSCloudFrontPartitionHostedZoneIdMap",
+       {
+        "Ref": "AWS::Partition"
+       },
+       "zoneId"
+      ]
+     }
+    },
+    "HostedZoneId": {
+     "Fn::ImportValue": "fresnel-dns-stack:ExportsOutputReffresnelhostedzone35BC8BB05BE035DA"
+    },
+    "Name": "app.reviewgpt.ca.",
+    "Type": "A"
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/app-alias/Resource"
+   }
+  },
+  "appdistributionid43653335": {
+   "Type": "AWS::SSM::Parameter",
+   "Properties": {
+    "Name": "/prod/fresnel/app/cloudfront-distribution-id",
+    "Type": "String",
+    "Value": {
+     "Ref": "appdistribution1E0367B2"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/app-distribution-id/Resource"
+   }
+  },
+  "appbucketnameBF68D8D9": {
+   "Type": "AWS::SSM::Parameter",
+   "Properties": {
+    "Name": "/prod/fresnel/app/bucket-name",
+    "Type": "String",
+    "Value": {
+     "Ref": "fresnelappbucketF297BBF7"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/app-bucket-name/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/22PQU7DMBBFz9K9M5BEldiWIiQWiKo9AHLtaTRNYlcz41bI8t2RCQIWrP5/X28W00HXd9Cu7E0a58dmoiPkg1o3GnuT9yw95MfkRlSzPYXvtsQuTuQ+fueFi3FTTP7EMSjkN6aBwsY5FHnxGJT062Jbnefq/Gs8kSjTMSnFUPW/XAzHpLjuIW/26CL7aiztgFqMyFxfYArDzrKdUZGr8gOlVHy1lwuFoZgQPcJZ7q7dPbQP0K7OQtRwCkozwn7JT0H2gtQoAQAA"
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-app-stack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Mappings": {
+  "AWSCloudFrontPartitionHostedZoneIdMap": {
+   "aws": {
+    "zoneId": "Z2FDTNDATAQYW2"
+   },
+   "aws-cn": {
+    "zoneId": "Z3RFFRIM2A3IF5"
+   }
+  }
+ },
+ "Outputs": {
+  "ExportsOutputFnGetAttfresnelappbucketF297BBF7Arn97060190": {
+   "Value": {
+    "Fn::GetAtt": [
+     "fresnelappbucketF297BBF7",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "fresnel-app-stack:ExportsOutputFnGetAttfresnelappbucketF297BBF7Arn97060190"
+   }
+  },
+  "ExportsOutputRefappdistribution1E0367B2E5238833": {
+   "Value": {
+    "Ref": "appdistribution1E0367B2"
+   },
+   "Export": {
+    "Name": "fresnel-app-stack:ExportsOutputRefappdistribution1E0367B2E5238833"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}
