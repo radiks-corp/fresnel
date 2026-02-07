@@ -179,14 +179,11 @@ nav {
 .screenshot-box {
   max-width: 900px;
   margin: 0 auto;
-  height: 400px;
-  background: var(--gray-200);
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--gray-400);
-  font-size: 14px;
+}
+
+.screenshot-box img {
+  width: 100%;
+  display: block;
 }
 
 /* Dark Section / Hero Image */

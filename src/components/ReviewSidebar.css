@@ -1251,13 +1251,21 @@
   background: #f6f8fa;
 }
 
+.unified-review-container .ai-conversation-content {
+  padding-top: 0;
+}
+
+.unified-review-container .ai-reasoning {
+  margin-top: 0;
+}
+
 .lens-selector-unified {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px;
-  background: transparent;
-  border-bottom: 1px solid #e5e5e5;
+  padding: 5px 12px;
+  margin-bottom: 0;
+  background: #fff;
 }
 
 .lens-selector-unified .lens-popover {
@@ -1323,6 +1331,88 @@
 
 .lens-clear-btn:hover {
   background: #e5e5e5;
+  color: #1f2328;
+}
+
+/* Review Status Bar */
+.review-status-bar {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 20px 16px;
+  background: #fff;
+}
+
+.review-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-status-spinner {
+  color: #656d76;
+  flex-shrink: 0;
+}
+
+.review-status-text {
+  flex: 1;
+  font-size: 14px;
+  color: #1f2328;
+}
+
+.review-status-heading {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2328;
+  line-height: 1.3;
+}
+
+.review-status-duration {
+  font-weight: 600;
+}
+
+.review-status-summary {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #57606a;
+  line-height: 1.5;
+}
+
+.review-status-stop {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #656d76;
+  background: none;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.review-status-stop:hover {
+  color: #1f2328;
+  border-color: #1f2328;
+}
+
+.review-status-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #656d76;
+  transition: all 0.15s;
+}
+
+.review-status-clear:hover {
+  background: #f6f8fa;
   color: #1f2328;
 }
 
