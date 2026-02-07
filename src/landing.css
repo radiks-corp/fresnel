@@ -71,8 +71,7 @@ nav {
 .logo-mark {
   width: 24px;
   height: 24px;
-  background: var(--purple);
-  border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .nav-links {
@@ -300,14 +299,12 @@ nav {
 }
 
 .card:hover {
-  border-color: var(--purple);
-  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.1);
+  border-color: var(--gray-300);
 }
 
 .card.expanded {
   grid-template-columns: 1fr;
-  border-color: var(--purple);
-  box-shadow: 0 12px 32px rgba(124, 58, 237, 0.15);
+  border-color: var(--gray-300);
 }
 
 .card.expanded .card-video {
@@ -406,18 +403,23 @@ nav {
 }
 
 .review-content {
-  max-width: 1100px;
+  max-width: 600px;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1fr 1.5fr;
-  gap: 48px;
-  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  overflow: visible;
 }
 
 @media (max-width: 900px) {
   .review-content {
-    grid-template-columns: 1fr;
+    max-width: 100%;
   }
+}
+
+.review-text {
+  text-align: center;
 }
 
 .review-text h2 {
@@ -435,6 +437,8 @@ nav {
 
 /* Prompt Window */
 .prompt-window {
+  max-width: 600px;
+  margin: 0 auto;
   background: #fff;
   border-radius: 16px;
   overflow: hidden;
@@ -654,15 +658,17 @@ nav {
   padding: 16px 20px;
   border-top: 1px solid var(--gray-200);
   background: var(--gray-50);
+  display: flex;
+  justify-content: center;
 }
 
 .submit-review-btn {
   display: inline-block;
-  padding: 12px 24px;
+  padding: 14px 32px;
   background: #86efac;
   color: #111;
-  border-radius: 8px;
-  font-size: 16px;
+  border-radius: 10px;
+  font-size: 18px;
   font-weight: 600;
 }
 

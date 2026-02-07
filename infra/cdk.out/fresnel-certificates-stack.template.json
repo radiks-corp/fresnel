@@ -1,0 +1,84 @@
+{
+ "Resources": {
+  "fresnelglobalcertificateF353F79E": {
+   "Type": "AWS::CertificateManager::Certificate",
+   "Properties": {
+    "DomainName": "reviewgpt.ca",
+    "DomainValidationOptions": [
+     {
+      "DomainName": "reviewgpt.ca",
+      "HostedZoneId": {
+       "Fn::ImportValue": "fresnel-dns-stack:ExportsOutputReffresnelhostedzone35BC8BB05BE035DA"
+      }
+     }
+    ],
+    "SubjectAlternativeNames": [
+     "*.reviewgpt.ca"
+    ],
+    "Tags": [
+     {
+      "Key": "Name",
+      "Value": "fresnel-certificates-stack/fresnel-global-certificate"
+     }
+    ],
+    "ValidationMethod": "DNS"
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-certificates-stack/fresnel-global-certificate/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/03IMRJAMBBA0bPokyXR6N2AA5iVLLNBzCQhhXF3hYLqz/sadK1BFZijNHaRK49w9QnNIjDHwVBIPLHBRBt6nCnA1X5PtJP/8b6F3y2Bi+WpK1ANqMJFZhkOn3gj6N4+kyNMBXUAAAA="
+   },
+   "Metadata": {
+    "aws:cdk:path": "fresnel-certificates-stack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "ExportsOutputReffresnelglobalcertificateF353F79E1D549FCA": {
+   "Value": {
+    "Ref": "fresnelglobalcertificateF353F79E"
+   },
+   "Export": {
+    "Name": "fresnel-certificates-stack:ExportsOutputReffresnelglobalcertificateF353F79E1D549FCA"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

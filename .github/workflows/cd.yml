@@ -1,0 +1,17 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  homepage:
+    name: Homepage
+    uses: ./.github/workflows/homepage-cd.yml
+    secrets: inherit
+
+  app:
+    name: App
+    uses: ./.github/workflows/app-cd.yml
+    secrets: inherit

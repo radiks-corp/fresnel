@@ -1,0 +1,22 @@
+{
+  "extends": [
+    "@tsconfig/node20/tsconfig.json",
+    "@tsconfig/strictest/tsconfig.json"
+  ],
+  "include": ["bin/**/*", "lib/**/*"],
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true,
+    "composite": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "exactOptionalPropertyTypes": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "typeRoots": ["./node_modules/@types"]
+  },
+  "exclude": ["dist", "node_modules", "cdk.out"]
+}

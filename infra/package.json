@@ -1,0 +1,27 @@
+{
+  "name": "@fresnel/infra",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": "bin/infra.js",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist cdk.out",
+    "cdk": "cdk",
+    "synth": "cdk synth -c target=production",
+    "deploy": "cdk deploy -c target=production",
+    "deploy:all": "cdk deploy --all -c target=production",
+    "diff": "cdk diff -c target=production"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.232.1",
+    "constructs": "10.4.2"
+  },
+  "devDependencies": {
+    "@tsconfig/node20": "20.1.4",
+    "@tsconfig/strictest": "2.0.5",
+    "aws-cdk": "2.1033.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "5.7.3"
+  }
+}

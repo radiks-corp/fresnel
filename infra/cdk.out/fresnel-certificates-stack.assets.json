@@ -1,0 +1,21 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "7d08982a15764e52332ae0f85772be3bb92f11c1972dcae704413c47597af167": {
+      "displayName": "fresnel-certificates-stack Template",
+      "source": {
+        "path": "fresnel-certificates-stack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "REDACTED_ACCOUNT_ID-us-east-1-ed6704a4": {
+          "bucketName": "cdk-hnb659fds-assets-REDACTED_ACCOUNT_ID-us-east-1",
+          "objectKey": "7d08982a15764e52332ae0f85772be3bb92f11c1972dcae704413c47597af167.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::REDACTED_ACCOUNT_ID:role/cdk-hnb659fds-file-publishing-role-REDACTED_ACCOUNT_ID-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
