@@ -1,0 +1,70 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: fresnel-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-fresnel}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-fresnel_dev_password}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-fresnel}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - fresnel-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fresnel-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME:-fresnel}:${MONGO_ROOT_PASSWORD:-fresnel_dev_password}@mongodb:27017/${MONGO_DATABASE:-fresnel}?authSource=admin
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - fresnel-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fresnel-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3001
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./index.html:/app/index.html
+      - ./vite.config.js:/app/vite.config.js
+    develop:
+      watch:
+        - path: ./src
+          target: /app/src
+          action: sync
+    networks:
+      - fresnel-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  fresnel-network:
+    driver: bridge

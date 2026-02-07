@@ -1,0 +1,26 @@
+{
+  "appId": "com.fresnel.app",
+  "productName": "Fresnel",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "public/**/*",
+    "icon.png"
+  ],
+  "mac": {
+    "target": "dir",
+    "icon": "build/icon.icns",
+    "identity": null
+  },
+  "win": {
+    "target": "dir",
+    "icon": "public/vite.svg"
+  },
+  "linux": {
+    "target": "dir",
+    "icon": "public/vite.svg"
+  }
+}
