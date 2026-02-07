@@ -72,6 +72,14 @@ app.get('/api', (req, res) => {
   res.json({ message: 'Fresnel API' })
 })
 
+// Debug endpoint (temporary for troubleshooting)
+app.get('/api/debug', (req, res) => {
+  res.json({
+    env: process.env,
+    headers: req.headers,
+  })
+})
+
 // GitHub OAuth - initiate
 app.get('/api/auth/github', (req, res) => {
   const redirectUri = `${FRONTEND_URL}/auth/callback`
