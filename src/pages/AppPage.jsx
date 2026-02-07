@@ -328,6 +328,9 @@ function AppPage() {
     }
 
     fetchPRs()
+    setInterval(() => {
+      fetchPRs()
+    }, 5000)
   }, [selectedRepo, urlRepoId, urlPrNumber, updateUrl])
 
   useEffect(() => {
