@@ -188,6 +188,7 @@ app.post('/api/auth/github/refresh', async (req, res) => {
 // Get current user (validate token)
 app.get('/api/auth/me', async (req, res) => {
   const authHeader = req.headers.authorization
+  console.log('Auth header:', authHeader)
   
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' })
