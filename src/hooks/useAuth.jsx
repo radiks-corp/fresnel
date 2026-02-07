@@ -55,8 +55,16 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     // Check for existing PAT on mount
     const storedPat = localStorage.getItem('github_pat')
+    const urlToken = new URLSearchParams(window.location.search).get('token')
     
-    if (storedPat) {
+    if (urlToken) {
+      fetchUser(urlToken).then(success => {
+        if (!success) {
+          console.warn('Failed to auto-login from URL token')
+        }
+        setLoading(false)
+      })
+    } else if (storedPat) {
       fetchUser(storedPat).then(success => {
         if (!success) {
           localStorage.removeItem('github_pat')
