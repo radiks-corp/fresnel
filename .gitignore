@@ -1,0 +1,46 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build
+dist
+build
+
+# Electron / electron-builder
+release/
+out/
+*.dmg
+*.AppImage
+*.snap
+*.deb
+*.rpm
+*.exe
+*.msi
+*.blockmap
+
+# Environment
+.env
+.env.local
+.env.development
+.env.production
+
+# Secrets
+*.pem
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+mongodb_data
