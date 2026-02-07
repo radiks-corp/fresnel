@@ -285,6 +285,11 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/diff', async (req, res) => {
   }
 
   const token = authHeader.slice(7)
+  const cacheKey = `${owner}/${repo}`
+  const cachedDiff = diffCache.get(cacheKey)
+  if (cachedDiff) {
+    return res.type('text/plain').send(cachedDiff)
+  }
 
   try {
     const diffResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}`, {
@@ -299,6 +304,7 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/diff', async (req, res) => {
     }
 
     const diff = await diffResponse.text()
+    diffCache.set(cacheKey, diff)
     res.type('text/plain').send(diff)
   } catch (error) {
     console.error('Failed to fetch diff:', error)
@@ -383,6 +389,7 @@ function buildFilesSummary(files: { filename: string; additions: number; deletio
 
 // Store diff files for tool access (keyed by session/request)
 const diffFilesCache = new Map<string, { filename: string; content: string }[]>()
+const diffCache = new Map<string, string>()
 
 // Chat endpoint for AI conversations - requires repo details in route
 app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => {
