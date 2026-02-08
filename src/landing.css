@@ -125,10 +125,168 @@ nav {
 
 /* Hero */
 .hero {
-  max-width: 700px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 140px 24px 60px;
-  text-align: center;
+  text-align: left;
+}
+
+.hero-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+/* Lens Backdrop - behind screenshot, spans full viewport width */
+.lens-backdrop {
+  position: absolute;
+  top: -180px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 320px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.lens-effect {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.light-beam-in {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 50%;
+  height: 36px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(220, 220, 225, 0.08) 20%,
+    rgba(200, 200, 210, 0.2) 50%,
+    rgba(230, 230, 235, 0.5) 85%,
+    rgba(245, 245, 248, 0.7) 100%
+  );
+  z-index: 0;
+  transform-origin: left center;
+  animation: beam-expand 0.4s ease-out 0.3s both;
+}
+
+@keyframes beam-expand {
+  0% {
+    transform: translateY(-50%) scaleX(0);
+  }
+  100% {
+    transform: translateY(-50%) scaleX(1);
+  }
+}
+
+.light-beam-out {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 50%;
+  height: 300px;
+  z-index: 0;
+  overflow: visible;
+  transition: transform 0.3s ease-out;
+  transform-origin: left center;
+}
+
+.rainbow-beam {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 0, 0, 0.2) 0%,
+    rgba(255, 127, 0, 0.2) 14%,
+    rgba(255, 255, 0, 0.18) 28%,
+    rgba(0, 255, 0, 0.18) 42%,
+    rgba(0, 200, 255, 0.18) 57%,
+    rgba(0, 127, 255, 0.2) 71%,
+    rgba(75, 0, 130, 0.2) 85%,
+    rgba(148, 0, 211, 0.2) 100%
+  );
+  clip-path: polygon(0 35%, 100% 0%, 100% 100%, 0 65%);
+  transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  animation: rainbow-sweep 0.5s ease-out 0.45s both;
+}
+
+@keyframes rainbow-sweep {
+  0% {
+    clip-path: polygon(0 35%, 0 0%, 0 100%, 0 65%);
+    opacity: 0;
+  }
+  100% {
+    clip-path: polygon(0 35%, 100% 0%, 100% 100%, 0 65%);
+    opacity: 1;
+  }
+}
+
+.lens-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(200, 200, 210, 0.6),
+    0 0 0 3px rgba(180, 180, 195, 0.3),
+    0 8px 32px rgba(0, 0, 0, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.lens-silver-base {
+  position: absolute;
+  inset: 0;
+  background: 
+    radial-gradient(circle at 30% 25%, #ffffff 0%, transparent 50%),
+    radial-gradient(circle at 70% 75%, #d1d5db 0%, transparent 50%),
+    linear-gradient(145deg, #f8f9fa 0%, #e5e7eb 30%, #d1d5db 60%, #c4c7cc 100%);
+  border-radius: 50%;
+}
+
+.lens-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lens-rings circle {
+  fill: none;
+  stroke: rgba(168, 139, 210, 0.45);
+}
+
+.lens-highlight {
+  display: none;
+}
+
+.lens-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    transparent 44%,
+    rgba(255, 255, 255, 0.25) 48%,
+    rgba(255, 255, 255, 0.35) 50%,
+    rgba(255, 255, 255, 0.25) 52%,
+    transparent 56%,
+    transparent 100%
+  );
+  border-radius: 50%;
+  transition: background 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .badge {
@@ -141,6 +299,8 @@ nav {
   font-size: 13px;
   color: var(--gray-600);
   margin-bottom: 24px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .badge-dot {
@@ -151,11 +311,39 @@ nav {
 }
 
 .hero h1 {
-  font-size: 48px;
-  font-weight: 700;
-  line-height: 1.1;
+  font-size: 72px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
   color: var(--gray-900);
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.light-speed-text {
+  display: inline-block;
+  animation: tilt-italic 0.3s ease-out 0.8s both;
+}
+
+@keyframes tilt-italic {
+  0% {
+    transform: skewX(0deg);
+  }
+  100% {
+    transform: skewX(-12deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .hero h1 {
+    font-size: 52px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero h1 {
+    font-size: 38px;
+    letter-spacing: -0.02em;
+  }
 }
 
 .subtitle {
@@ -167,15 +355,19 @@ nav {
 .buttons {
   display: flex;
   gap: 12px;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 /* Screenshot */
 .screenshot {
+  position: relative;
   padding: 0 24px 80px;
+  overflow: visible;
 }
 
 .screenshot-box {
+  position: relative;
+  z-index: 2;
   max-width: 900px;
   margin: 0 auto;
 }

@@ -5,7 +5,6 @@ node_modules
 
 # Build
 dist
-build
 
 # Electron / electron-builder
 release/
@@ -19,6 +18,9 @@ out/
 *.msi
 *.blockmap
 
+# CDK
+infra/cdk.out/
+
 # Environment
 .env
 .env.local
@@ -27,6 +29,7 @@ out/
 
 # Secrets
 *.pem
+*.p12
 
 # Logs
 *.log

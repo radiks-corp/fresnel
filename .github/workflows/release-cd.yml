@@ -1,0 +1,133 @@
+name: Release CD
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build-and-sign:
+    name: Build, Sign & Notarize (macOS)
+    runs-on: macos-latest
+    environment:
+      name: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Notarize Dependency
+        run: npm install --save-dev @electron/notarize
+
+      # Import the Developer ID Application certificate into a temporary keychain
+      # so codesign can find it during the build.
+      - name: Import Code-Signing Certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Decode the .p12 certificate
+          echo "$CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+
+          # Create and configure a temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import the certificate
+          security import $RUNNER_TEMP/certificate.p12 \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Allow codesign to access the keychain without prompting
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add the temporary keychain to the search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+      - name: Build, Sign & Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: npm run electron:build:mac
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresnel-mac-dmg
+          path: release/*.dmg
+          retention-days: 30
+
+  deploy-to-s3:
+    name: Deploy to S3
+    runs-on: ubuntu-latest
+    needs: build-and-sign
+    environment:
+      name: production
+      url: https://releases.reviewgpt.ca
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download DMG Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fresnel-mac-dmg
+          path: release
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::REDACTED_ACCOUNT_ID:role/fresnel-github-deploy
+          aws-region: us-east-1
+
+      - name: Get Bucket Name
+        uses: dkershner6/aws-ssm-getparameters-action@v2
+        with:
+          parameterPairs: '/prod/fresnel/releases/bucket-name = RELEASES_BUCKET_NAME'
+
+      - name: Upload to S3 (latest)
+        run: aws s3 cp release/*.dmg s3://$RELEASES_BUCKET_NAME/latest/Fresnel.dmg
+
+      - name: Get CloudFront Distribution ID
+        uses: dkershner6/aws-ssm-getparameters-action@v2
+        with:
+          parameterPairs: '/prod/fresnel/releases/cloudfront-distribution-id = DISTRIBUTION'
+
+      - name: Invalidate CloudFront Cache
+        uses: chetan/invalidate-cloudfront-action@v2
+        env:
+          PATHS: '/latest/*'
+          AWS_REGION: us-east-1
+
+  cleanup:
+    name: Cleanup Keychain
+    runs-on: macos-latest
+    needs: build-and-sign
+    if: always()
+    steps:
+      - name: Remove Temporary Keychain
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi

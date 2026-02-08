@@ -14,6 +14,8 @@ interface CicdStackProps extends StackProps {
   homepageDistribution: cloudfront.IDistribution;
   appBucket: s3.IBucket;
   appDistribution: cloudfront.IDistribution;
+  releasesBucket: s3.IBucket;
+  releasesDistribution: cloudfront.IDistribution;
 }
 
 const GITHUB_DOMAIN = 'https://token.actions.githubusercontent.com';
@@ -35,6 +37,8 @@ export class CicdStack extends Stack {
       homepageDistribution,
       appBucket,
       appDistribution,
+      releasesBucket,
+      releasesDistribution,
     } = props;
 
     // ─── GitHub OIDC provider ────────────────────────────────────
@@ -68,9 +72,10 @@ export class CicdStack extends Stack {
       ),
     });
 
-    // S3: read/write to both frontend buckets
+    // S3: read/write to frontend + releases buckets
     homepageBucket.grantReadWrite(deployRole);
     appBucket.grantReadWrite(deployRole);
+    releasesBucket.grantReadWrite(deployRole);
 
     // CloudFront: invalidate both distributions
     deployRole.addToPolicy(
@@ -82,6 +87,7 @@ export class CicdStack extends Stack {
         resources: [
           `arn:aws:cloudfront::${this.account}:distribution/${homepageDistribution.distributionId}`,
           `arn:aws:cloudfront::${this.account}:distribution/${appDistribution.distributionId}`,
+          `arn:aws:cloudfront::${this.account}:distribution/${releasesDistribution.distributionId}`,
         ],
       }),
     );
