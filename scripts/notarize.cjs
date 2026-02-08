@@ -6,7 +6,7 @@ const { notarize } = require('@electron/notarize');
  *
  * Required environment variables:
  *   APPLE_ID              – your Apple Developer email
- *   APPLE_APP_PASSWORD    – an app-specific password (not your account password)
+ *   APPLE_APP_SPECIFIC_PASSWORD – an app-specific password (not your account password)
  *   APPLE_TEAM_ID         – your 10-character Apple Developer Team ID
  */
 exports.default = async function notarizing(context) {
@@ -30,7 +30,7 @@ exports.default = async function notarizing(context) {
   await notarize({
     appPath,
     appleId: process.env.APPLE_ID,
-    appleIdPassword: process.env.APPLE_APP_PASSWORD,
+    appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
     teamId: process.env.APPLE_TEAM_ID,
   });
 
