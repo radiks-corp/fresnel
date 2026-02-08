@@ -103,8 +103,6 @@ export class ApiStack extends Stack {
     );
 
     // Grant execution role broad access to our secrets prefix.
-    // CDK's fromSecretNameV2 stores partial ARNs in the task definition but
-    // generates IAM policies with a -?????? suffix, causing a mismatch.
     service.taskDefinition.executionRole?.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
@@ -113,6 +111,7 @@ export class ApiStack extends Stack {
         ],
       }),
     );
+
 
     // Health check
     service.targetGroup.configureHealthCheck({

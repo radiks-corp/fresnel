@@ -4,16 +4,14 @@ import {
   Stack,
 } from 'aws-cdk-lib';
 
-import * as secretNames from '../../constants/secret-names.js';
-
 /**
  * Fresnel API secrets managed in AWS Secrets Manager.
- * Create these secrets manually in the console before first deploy:
  *
- *   prod/fresnel/api/env/anthropic/api-key
- *   prod/fresnel/api/env/mongo/uri
- *   prod/fresnel/api/env/github/client-id
- *   prod/fresnel/api/env/github/client-secret
+ * Uses full ARNs (with the random suffix) because ECS requires them.
+ * CDK's fromSecretNameV2 generates partial ARNs that Secrets Manager
+ * rejects, and plain names get treated as SSM Parameter Store references.
+ *
+ * If a secret is deleted and recreated, update the ARN here.
  */
 export class ApiSecrets {
   private readonly anthropicApiKey: secretsmanager.ISecret;
@@ -22,28 +20,28 @@ export class ApiSecrets {
   private readonly githubClientSecret: secretsmanager.ISecret;
 
   constructor(stack: Stack) {
-    this.anthropicApiKey = secretsmanager.Secret.fromSecretNameV2(
+    this.anthropicApiKey = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'anthropic-api-key',
-      secretNames.ANTHROPIC_API_KEY,
+      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/anthropic/api-key-67A6N0',
     );
 
-    this.mongodbUri = secretsmanager.Secret.fromSecretNameV2(
+    this.mongodbUri = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'mongodb-uri',
-      secretNames.MONGODB_URI,
+      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/mongo/uri-ZvuUmD',
     );
 
-    this.githubClientId = secretsmanager.Secret.fromSecretNameV2(
+    this.githubClientId = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'github-client-id',
-      secretNames.GITHUB_CLIENT_ID,
+      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/github/client-id-jcWWmp',
     );
 
-    this.githubClientSecret = secretsmanager.Secret.fromSecretNameV2(
+    this.githubClientSecret = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'github-client-secret',
-      secretNames.GITHUB_CLIENT_SECRET,
+      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/github/client-secret-YPUFnR',
     );
   }
 
@@ -53,7 +51,9 @@ export class ApiSecrets {
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(this.anthropicApiKey),
       MONGODB_URI: ecs.Secret.fromSecretsManager(this.mongodbUri),
       GITHUB_CLIENT_ID: ecs.Secret.fromSecretsManager(this.githubClientId),
-      GITHUB_CLIENT_SECRET: ecs.Secret.fromSecretsManager(this.githubClientSecret),
+      GITHUB_CLIENT_SECRET: ecs.Secret.fromSecretsManager(
+        this.githubClientSecret,
+      ),
     };
   }
 }
