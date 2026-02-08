@@ -11,6 +11,9 @@ jobs:
     environment:
       name: production
       url: https://app.reviewgpt.ca
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,8 +21,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::REDACTED_ACCOUNT_ID:role/fresnel-github-deploy
           aws-region: us-east-1
 
       - name: Install Dependencies
@@ -40,14 +42,16 @@ jobs:
     name: Invalidate App CloudFront
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      id-token: write
+      contents: read
     needs:
       - app-deploy-prod
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::REDACTED_ACCOUNT_ID:role/fresnel-github-deploy
           aws-region: us-east-1
 
       - name: Get CloudFront Distribution ID

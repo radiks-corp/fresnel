@@ -3,6 +3,7 @@ import {
   aws_iam as iam,
   aws_s3 as s3,
   CfnOutput,
+  Duration,
   Stack,
   type StackProps,
 } from 'aws-cdk-lib';
@@ -15,13 +16,15 @@ interface CicdStackProps extends StackProps {
   appDistribution: cloudfront.IDistribution;
 }
 
+const GITHUB_DOMAIN = 'https://token.actions.githubusercontent.com';
+const GITHUB_ORG = 'radiks-corp';
+const GITHUB_REPO = 'fresnel';
+
 /**
  * CI/CD resources for Fresnel.
  *
- * Creates IAM deployer users with scoped permissions for:
- * - S3 sync (deploy React builds)
- * - CloudFront invalidation (bust cache after deploy)
- * - SSM parameter reads (resolve bucket names & distribution IDs)
+ * Creates a GitHub OIDC provider and an IAM role that GitHub Actions
+ * can assume for deploying frontends to S3 + CloudFront.
  */
 export class CicdStack extends Stack {
   constructor(scope: Construct, id: string, props: CicdStackProps) {
@@ -34,22 +37,43 @@ export class CicdStack extends Stack {
       appDistribution,
     } = props;
 
-    // ─── Deployer user ───────────────────────────────────────────
+    // ─── GitHub OIDC provider ────────────────────────────────────
 
-    const deployer = new iam.User(this, 'fresnel-deployer', {
-      userName: 'fresnel-deployer',
+    const oidcProvider = new iam.OpenIdConnectProvider(
+      this,
+      'github-oidc-provider',
+      {
+        url: GITHUB_DOMAIN,
+        clientIds: ['sts.amazonaws.com'],
+      },
+    );
+
+    // ─── Deploy role ─────────────────────────────────────────────
+
+    const deployRole = new iam.Role(this, 'github-deploy-role', {
+      roleName: 'fresnel-github-deploy',
+      description:
+        'Assumed by GitHub Actions (OIDC) to deploy Fresnel frontends',
+      maxSessionDuration: Duration.hours(1),
+      assumedBy: new iam.WebIdentityPrincipal(
+        oidcProvider.openIdConnectProviderArn,
+        {
+          StringLike: {
+            'token.actions.githubusercontent.com:sub': `repo:${GITHUB_ORG}/${GITHUB_REPO}:*`,
+          },
+          StringEquals: {
+            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+          },
+        },
+      ),
     });
 
     // S3: read/write to both frontend buckets
-    homepageBucket.grantReadWrite(deployer);
-    appBucket.grantReadWrite(deployer);
-
-    // S3: list buckets (needed for aws s3 sync --delete)
-    homepageBucket.grantRead(deployer);
-    appBucket.grantRead(deployer);
+    homepageBucket.grantReadWrite(deployRole);
+    appBucket.grantReadWrite(deployRole);
 
     // CloudFront: invalidate both distributions
-    deployer.addToPolicy(
+    deployRole.addToPolicy(
       new iam.PolicyStatement({
         actions: [
           'cloudfront:CreateInvalidation',
@@ -63,7 +87,7 @@ export class CicdStack extends Stack {
     );
 
     // SSM: read deployment parameters
-    deployer.addToPolicy(
+    deployRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['ssm:GetParameter', 'ssm:GetParameters'],
         resources: [
@@ -74,9 +98,9 @@ export class CicdStack extends Stack {
 
     // ─── Outputs ─────────────────────────────────────────────────
 
-    new CfnOutput(this, 'deployer-user-name', {
-      value: deployer.userName,
-      description: 'IAM user name for CI/CD deployments',
+    new CfnOutput(this, 'deploy-role-arn', {
+      value: deployRole.roleArn,
+      description: 'IAM role ARN for GitHub Actions OIDC deployments',
     });
   }
 }
