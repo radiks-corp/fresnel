@@ -39,6 +39,7 @@ jobs:
   invalidate-app-cloudfront:
     name: Invalidate App CloudFront
     runs-on: ubuntu-latest
+    environment: production
     needs:
       - app-deploy-prod
     steps:

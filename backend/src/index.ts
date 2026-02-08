@@ -909,7 +909,7 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review/summarize', async (r
       model: anthropic('claude-sonnet-4-20250514'),
       system: 'You summarize code review findings in 1-2 concise sentences. Be specific about the most important issues. Do not use bullet points. Do not start with "The review" or "This review". Just state the findings directly.',
       prompt: `Summarize these ${items.length} review findings:\n${compactList}`,
-      maxTokens: 150,
+      maxOutputTokens: 150,
     })
 
     res.json({ summary: result.text })
@@ -991,16 +991,17 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/timeline', async (req, res) 
 
 // Connect to MongoDB and start server
 async function start() {
+  // Start the HTTP server regardless of MongoDB status
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`)
+  })
+
+  // Attempt MongoDB connection (non-blocking)
   try {
     await mongoose.connect(MONGODB_URI)
     console.log('Connected to MongoDB')
-    
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`)
-    })
   } catch (error) {
-    console.error('Failed to connect to MongoDB:', error)
-    process.exit(1)
+    console.error('MongoDB connection failed (server will continue without it):', error)
   }
 }
 

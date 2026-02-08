@@ -39,6 +39,7 @@ jobs:
   invalidate-homepage-cloudfront:
     name: Invalidate Homepage CloudFront
     runs-on: ubuntu-latest
+    environment: production
     needs:
       - homepage-deploy-prod
     steps:
