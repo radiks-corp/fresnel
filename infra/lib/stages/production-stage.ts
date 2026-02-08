@@ -7,6 +7,7 @@ import { CertificatesStack } from '../stacks/certificates-stack/index.js';
 import { CicdStack } from '../stacks/cicd-stack/index.js';
 import { DnsStack } from '../stacks/dns-stack/index.js';
 import { HomepageStack } from '../stacks/homepage-stack/index.js';
+import { ReleasesStack } from '../stacks/releases-stack/index.js';
 
 interface ProductionStageProps extends Omit<StageProps, 'env'> {
   env: Required<Environment>;
@@ -59,6 +60,14 @@ export function productionStage(
     certificate: certificatesStack.certificate,
   });
 
+  // Desktop app releases: releases.reviewgpt.ca
+  const releasesStack = new ReleasesStack(scope, 'fresnel-releases-stack', {
+    env,
+    crossRegionReferences: true,
+    hostedZone: dnsStack.hostedZone,
+    certificate: certificatesStack.certificate,
+  });
+
   // CI/CD: deployer IAM user
   new CicdStack(scope, 'fresnel-cicd-stack', {
     env,
@@ -66,6 +75,8 @@ export function productionStage(
     homepageDistribution: homepageStack.distribution,
     appBucket: appStack.bucket,
     appDistribution: appStack.distribution,
+    releasesBucket: releasesStack.bucket,
+    releasesDistribution: releasesStack.distribution,
   });
 
   // API: api.reviewgpt.ca

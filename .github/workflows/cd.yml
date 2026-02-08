@@ -15,3 +15,8 @@ jobs:
     name: App
     uses: ./.github/workflows/app-cd.yml
     secrets: inherit
+
+  release:
+    name: Release
+    uses: ./.github/workflows/release-cd.yml
+    secrets: inherit

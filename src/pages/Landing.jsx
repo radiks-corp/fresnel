@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import '../landing.css'
 import tahoeWallpaper from '../tahoe_wallpaper.jpg'
@@ -7,6 +7,32 @@ import screenshotImg from '../screenshot.png'
 
 function Landing() {
   const [expandedCard, setExpandedCard] = useState(null)
+  const [lensTilt, setLensTilt] = useState({ x: 0, y: 0 })
+  const lensRef = useRef(null)
+
+  // Continuous smooth circular animation
+  useEffect(() => {
+    let animationFrame
+    let startTime = Date.now()
+    
+    const animate = () => {
+      const elapsed = Date.now() - startTime
+      const duration = 8000 // 8 seconds for full circle
+      const progress = (elapsed % duration) / duration
+      
+      // Circular motion using sin/cos
+      const angle = progress * Math.PI * 2
+      const radius = 6 // Small tilt amount
+      const x = Math.sin(angle) * radius
+      const y = -Math.cos(angle) * radius
+      
+      setLensTilt({ x, y })
+      animationFrame = requestAnimationFrame(animate)
+    }
+    
+    animationFrame = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(animationFrame)
+  }, [])
 
   const handleVideoHover = (e, play) => {
     const video = e.currentTarget.querySelector('video')
@@ -51,26 +77,95 @@ function Landing() {
           <div className="nav-links">
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
-            <button className="btn-primary">Join the Waitlist</button>
+            <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download>Download Now</a>
           </div>
         </div>
       </nav>
 
       <main>
         <section className="hero">
-          <span className="badge">
-            <span className="badge-dot"></span>
-            Now available for macOS
-          </span>
-          <h1>Review code at light speed</h1>
-          <p className="subtitle">The complete AI suite for code review.</p>
-          <div className="buttons">
-            <button className="btn-primary">Join the Waitlist</button>
-            <button className="btn-secondary">Watch Demo</button>
+          <div className="hero-content">
+            <span className="badge">
+              <span className="badge-dot"></span>
+              Now available for macOS
+            </span>
+            <h1>Review code at <span className="light-speed-text">light speed</span></h1>
+            <p className="subtitle">The complete AI suite for code review.</p>
+            <div className="buttons">
+              <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download>Download Now</a>
+              <button className="btn-secondary">Watch Demo</button>
+            </div>
           </div>
         </section>
 
         <section className="screenshot">
+          {/* Lens effect positioned behind screenshot */}
+          <div className="lens-backdrop">
+            <div className="light-beam-in"></div>
+            <motion.div
+              ref={lensRef}
+              className="lens-effect"
+              initial={{ opacity: 1, scale: 1 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <div 
+                className="lens-inner"
+                style={{
+                  transform: `perspective(400px) rotateX(${-lensTilt.y}deg) rotateY(${lensTilt.x}deg)`,
+                }}
+              >
+                <div className="lens-silver-base"></div>
+                <svg className="lens-rings" viewBox="0 0 200 200">
+                  <circle cx="100" cy="100" r="95" strokeWidth="5" />
+                  <circle cx="100" cy="100" r="88" strokeWidth="4.8" />
+                  <circle cx="100" cy="100" r="81" strokeWidth="4.6" />
+                  <circle cx="100" cy="100" r="74" strokeWidth="4.4" />
+                  <circle cx="100" cy="100" r="67" strokeWidth="4.2" />
+                  <circle cx="100" cy="100" r="60" strokeWidth="4" />
+                  <circle cx="100" cy="100" r="53" strokeWidth="3.8" />
+                  <circle cx="100" cy="100" r="46" strokeWidth="3.5" />
+                  <circle cx="100" cy="100" r="39" strokeWidth="3.2" />
+                  <circle cx="100" cy="100" r="32" strokeWidth="2.8" />
+                  <circle cx="100" cy="100" r="25" strokeWidth="2.4" />
+                  <circle cx="100" cy="100" r="18" strokeWidth="2" />
+                  <circle cx="100" cy="100" r="11" strokeWidth="1.5" />
+                  <circle cx="100" cy="100" r="5" strokeWidth="1" />
+                </svg>
+                <div className="lens-highlight"></div>
+                <div 
+                  className="lens-shine"
+                  style={{
+                    background: `linear-gradient(
+                      ${135 - lensTilt.x * 2}deg,
+                      transparent 0%,
+                      transparent 44%,
+                      rgba(255, 255, 255, 0.25) 48%,
+                      rgba(255, 255, 255, 0.35) 50%,
+                      rgba(255, 255, 255, 0.25) 52%,
+                      transparent 56%,
+                      transparent 100%
+                    )`,
+                  }}
+                ></div>
+              </div>
+            </motion.div>
+
+            <div 
+              className="light-beam-out"
+              style={{
+                transform: `translateY(calc(-50% + ${lensTilt.y * 0.5}px))`,
+              }}
+            >
+              <div 
+                className="rainbow-beam"
+                style={{
+                  transform: `rotate(${lensTilt.y * 0.2}deg) scaleY(${1 + Math.abs(lensTilt.x) * 0.005})`,
+                  opacity: 0.7 + Math.abs(lensTilt.x) * 0.01,
+                }}
+              ></div>
+            </div>
+          </div>
+
           <div className="screenshot-box">
             <img src={screenshotImg} alt="Fresnel app screenshot" />
           </div>
@@ -307,7 +402,7 @@ function Landing() {
 
         <section className="bottom-cta">
           <p>Code review doesn't have to be a chore.</p>
-          <button className="btn-primary">Join the Waitlist</button>
+          <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download>Download Now</a>
         </section>
 
       </main>

@@ -11,10 +11,17 @@
     "icon.png"
   ],
   "mac": {
-    "target": "dir",
+    "target": "dmg",
     "icon": "build/icon.icns",
-    "identity": null
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.inherit.plist"
   },
+  "dmg": {
+    "sign": false
+  },
+  "afterSign": "scripts/notarize.cjs",
   "win": {
     "target": "dir",
     "icon": "public/vite.svg"
