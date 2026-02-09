@@ -1,7 +1,9 @@
 {
   "name": "fresnel",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "AI-powered code review for GitHub",
+  "author": "Mitchell Hynes",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
