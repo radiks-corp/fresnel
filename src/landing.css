@@ -136,6 +136,8 @@ nav {
   flex-direction: column;
   align-items: flex-start;
   gap: 0;
+  position: relative;
+  z-index: 5;
 }
 
 /* Lens Backdrop - behind screenshot, spans full viewport width */
@@ -337,12 +339,48 @@ nav {
   .hero h1 {
     font-size: 52px;
   }
+
+  .lens-backdrop {
+    top: -120px;
+    height: 200px;
+  }
+
+  .lens-effect {
+    width: 120px;
+    height: 120px;
+  }
+
+  .light-beam-in {
+    height: 20px;
+  }
+
+  .light-beam-out {
+    height: 180px;
+  }
 }
 
 @media (max-width: 480px) {
   .hero h1 {
     font-size: 38px;
     letter-spacing: -0.02em;
+  }
+
+  .lens-backdrop {
+    top: -80px;
+    height: 140px;
+  }
+
+  .lens-effect {
+    width: 80px;
+    height: 80px;
+  }
+
+  .light-beam-in {
+    height: 14px;
+  }
+
+  .light-beam-out {
+    height: 120px;
   }
 }
 
@@ -503,9 +541,10 @@ nav {
   aspect-ratio: 16/9;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .card {
     grid-template-columns: 1fr;
+    cursor: default;
   }
 }
 

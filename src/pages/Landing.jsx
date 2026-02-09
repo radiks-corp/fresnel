@@ -34,6 +34,17 @@ function Landing() {
     return () => cancelAnimationFrame(animationFrame)
   }, [])
 
+  // Collapse expanded card on mobile resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 768 && expandedCard) {
+        setExpandedCard(null)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [expandedCard])
+
   const handleVideoHover = (e, play) => {
     const video = e.currentTarget.querySelector('video')
     if (video) {
@@ -47,6 +58,9 @@ function Landing() {
   }
 
   const handleCardClick = (cardId, e) => {
+    // Disable card expansion on mobile
+    if (window.innerWidth <= 768) return
+    
     const video = e.currentTarget.querySelector('video')
     if (expandedCard === cardId) {
       setExpandedCard(null)
