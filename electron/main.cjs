@@ -1,7 +1,7 @@
 const { app, BrowserWindow, Notification, ipcMain, shell } = require('electron');
 const path = require('path');
 
-// Keep a global reference to prevent garbage collection
+// Keep a global reference to prevent garbage collection.
 let mainWindow = null;
 let pollingInterval = null;
 let seenReviewRequests = new Set();
