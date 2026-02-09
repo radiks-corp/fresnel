@@ -2,7 +2,15 @@ name: Release CD
 
 on:
   workflow_dispatch:
-  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - 'electron/**'
+      - 'electron-builder.json'
+      - 'scripts/notarize.cjs'
+      - 'build/entitlements*'
+      - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   build-and-sign:
@@ -62,12 +70,14 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
       - name: Build, Sign & Notarize
+        timeout-minutes: 30
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          DEBUG: electron-notarize*
         run: npm run electron:build:mac
 
       - name: Upload DMG Artifact

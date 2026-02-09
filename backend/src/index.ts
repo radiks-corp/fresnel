@@ -72,119 +72,6 @@ app.get('/api', (req, res) => {
   res.json({ message: 'Fresnel API' })
 })
 
-// GitHub OAuth - initiate
-app.get('/api/auth/github', (req, res) => {
-  const redirectUri = `${FRONTEND_URL}/auth/callback`
-  const scope = 'read:user user:email repo'
-  const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}`
-  res.json({ url: authUrl })
-})
-
-// GitHub OAuth - exchange code for token
-app.post('/api/auth/github/callback', async (req, res) => {
-  const { code } = req.body
-
-  if (!code) {
-    return res.status(400).json({ error: 'Missing code' })
-  }
-
-  try {
-    // Exchange code for access token
-    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
-        code,
-      }),
-    })
-
-    const tokenData = await tokenResponse.json() as { 
-      access_token?: string
-      refresh_token?: string
-      expires_in?: number
-      refresh_token_expires_in?: number
-      error?: string 
-    }
-
-    if (tokenData.error) {
-      return res.status(400).json({ error: tokenData.error })
-    }
-
-    // Get user info
-    const userResponse = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'Accept': 'application/vnd.github.v3+json',
-      },
-    })
-
-    const userData = await userResponse.json()
-
-    res.json({
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      expires_in: tokenData.expires_in,
-      user: userData,
-    })
-  } catch (error) {
-    console.error('GitHub OAuth error:', error)
-    res.status(500).json({ error: 'Failed to authenticate with GitHub' })
-  }
-})
-
-// GitHub OAuth - refresh token
-app.post('/api/auth/github/refresh', async (req, res) => {
-  const { refresh_token } = req.body
-
-  if (!refresh_token) {
-    return res.status(400).json({ error: 'Missing refresh_token' })
-  }
-
-  try {
-    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-        refresh_token,
-      }),
-    })
-
-    const tokenData = await tokenResponse.json() as { 
-      access_token?: string
-      refresh_token?: string
-      expires_in?: number
-      refresh_token_expires_in?: number
-      error?: string
-      error_description?: string
-    }
-
-    if (tokenData.error) {
-      console.error('Token refresh error:', tokenData.error, tokenData.error_description)
-      return res.status(400).json({ error: tokenData.error, description: tokenData.error_description })
-    }
-
-    res.json({
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      expires_in: tokenData.expires_in,
-    })
-  } catch (error) {
-    console.error('GitHub refresh token error:', error)
-    res.status(500).json({ error: 'Failed to refresh token' })
-  }
-})
-
 // Get current user (validate token)
 app.get('/api/auth/me', async (req, res) => {
   const authHeader = req.headers.authorization
@@ -381,9 +268,6 @@ function buildFilesSummary(files: { filename: string; additions: number; deletio
   return lines.join('\n')
 }
 
-// Store diff files for tool access (keyed by session/request)
-const diffFilesCache = new Map<string, { filename: string; content: string }[]>()
-
 // Chat endpoint for AI conversations - requires repo details in route
 app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => {
   const authHeader = req.headers.authorization
@@ -447,17 +331,6 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
   // Parse diff into files
   const diffFiles = parseDiffToFiles(diff || '')
   console.log('Parsed diff files:', diffFiles.length)
-  
-  const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  diffFilesCache.set(sessionId, diffFiles)
-  
-  // Clean up old cache entries (keep last 100)
-  if (diffFilesCache.size > 100) {
-    const keys = Array.from(diffFilesCache.keys())
-    for (let i = 0; i < keys.length - 100; i++) {
-      diffFilesCache.delete(keys[i])
-    }
-  }
 
   // Build system prompt
   let systemPrompt = `You are Fresnel, an AI code review assistant. You help developers understand code, review pull requests, and answer questions about their codebase.
@@ -515,9 +388,6 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
     }
   }
 
-  // Define tools for reading files - capture sessionId in closure
-  const currentSessionId = sessionId
-  
   const tools = {
     read_file: tool({
       description: 'Read the diff content for a specific file from the PR. Use this to examine code changes in detail. Supports pagination for large files.',
@@ -526,11 +396,10 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
         page: z.number().describe('Page number (1-indexed). Each page contains ~100 lines.'),
       }),
       execute: async ({ filename, page }) => {
-        const files = diffFilesCache.get(currentSessionId) || []
-        const file = files.find(f => f.filename === filename || f.filename.endsWith(filename))
+        const file = diffFiles.find(f => f.filename === filename || f.filename.endsWith(filename))
         
         if (!file) {
-          const availableFiles = files.map(f => f.filename).join(', ')
+          const availableFiles = diffFiles.map(f => f.filename).join(', ')
           return { 
             error: `File "${filename}" not found in this PR.`,
             available_files: availableFiles || 'No files in diff'
@@ -563,7 +432,7 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
         filter: z.string().describe('Filter string to match filenames (e.g., ".ts" or "src/"). Use empty string to list all files.'),
       }),
       execute: async ({ filter }) => {
-        let files = diffFilesCache.get(currentSessionId) || []
+        let files = diffFiles
         if (filter) {
           files = files.filter(f => f.filename.includes(filter))
         }
@@ -571,8 +440,8 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
           total_files: files.length,
           files: files.map(f => ({
             filename: f.filename,
-            additions: (f as any).additions || 0,
-            deletions: (f as any).deletions || 0,
+            additions: f.additions || 0,
+            deletions: f.deletions || 0,
           })),
         }
       },
@@ -668,17 +537,6 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) =
   // Parse diff into files
   const diffFiles = parseDiffToFiles(diff || '')
   console.log('Parsed diff files:', diffFiles.length)
-  
-  const sessionId = `review-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  diffFilesCache.set(sessionId, diffFiles)
-  
-  // Clean up old cache entries (keep last 100)
-  if (diffFilesCache.size > 100) {
-    const keys = Array.from(diffFilesCache.keys())
-    for (let i = 0; i < keys.length - 100; i++) {
-      diffFilesCache.delete(keys[i])
-    }
-  }
 
   // Build lens-specific instructions
   const lensInstructions: Record<string, string> = {
@@ -779,9 +637,6 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
     }
   }
 
-  // Define tools for review - includes create_comment for structured output
-  const currentSessionId = sessionId
-  
   // Schema for review comments (GitHub PR comment shape)
   const reviewCommentSchema = z.object({
     path: z.string().describe('The file path (e.g., "src/components/Button.tsx")'),
@@ -798,11 +653,10 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
         page: z.number().describe('Page number (1-indexed). Each page contains ~100 lines.'),
       }),
       execute: async ({ filename, page }) => {
-        const files = diffFilesCache.get(currentSessionId) || []
-        const file = files.find(f => f.filename === filename || f.filename.endsWith(filename))
+        const file = diffFiles.find(f => f.filename === filename || f.filename.endsWith(filename))
         
         if (!file) {
-          return { error: `File "${filename}" not found.`, available_files: files.map(f => f.filename).join(', ') }
+          return { error: `File "${filename}" not found.`, available_files: diffFiles.map(f => f.filename).join(', ') }
         }
         
         const lines = file.content.split('\n')
@@ -828,11 +682,11 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
         filter: z.string().describe('Filter string to match filenames. Use empty string to list all.'),
       }),
       execute: async ({ filter }) => {
-        let files = diffFilesCache.get(currentSessionId) || []
+        let files = diffFiles
         if (filter) files = files.filter(f => f.filename.includes(filter))
         return {
           total_files: files.length,
-          files: files.map(f => ({ filename: f.filename, additions: (f as any).additions || 0, deletions: (f as any).deletions || 0 })),
+          files: files.map(f => ({ filename: f.filename, additions: f.additions || 0, deletions: f.deletions || 0 })),
         }
       },
     }),
