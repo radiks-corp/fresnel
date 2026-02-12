@@ -1,5 +1,7 @@
 import {
   aws_cloudfront as cloudfront,
+  aws_ecr as ecr,
+  aws_ecs as ecs,
   aws_iam as iam,
   aws_s3 as s3,
   CfnOutput,
@@ -16,6 +18,8 @@ interface CicdStackProps extends StackProps {
   appDistribution: cloudfront.IDistribution;
   releasesBucket: s3.IBucket;
   releasesDistribution: cloudfront.IDistribution;
+  apiRepository: ecr.IRepository;
+  apiService: ecs.IBaseService;
 }
 
 const GITHUB_DOMAIN = 'https://token.actions.githubusercontent.com';
@@ -26,7 +30,8 @@ const GITHUB_REPO = 'fresnel';
  * CI/CD resources for Fresnel.
  *
  * Creates a GitHub OIDC provider and an IAM role that GitHub Actions
- * can assume for deploying frontends to S3 + CloudFront.
+ * can assume for deploying frontends to S3 + CloudFront and the
+ * backend API to ECR + ECS Fargate.
  */
 export class CicdStack extends Stack {
   constructor(scope: Construct, id: string, props: CicdStackProps) {
@@ -39,6 +44,8 @@ export class CicdStack extends Stack {
       appDistribution,
       releasesBucket,
       releasesDistribution,
+      apiRepository,
+      apiService,
     } = props;
 
     // ─── GitHub OIDC provider ────────────────────────────────────
@@ -57,7 +64,7 @@ export class CicdStack extends Stack {
     const deployRole = new iam.Role(this, 'github-deploy-role', {
       roleName: 'fresnel-github-deploy',
       description:
-        'Assumed by GitHub Actions (OIDC) to deploy Fresnel frontends',
+        'Assumed by GitHub Actions (OIDC) to deploy Fresnel',
       maxSessionDuration: Duration.hours(1),
       assumedBy: new iam.WebIdentityPrincipal(
         oidcProvider.openIdConnectProviderArn,
@@ -99,6 +106,24 @@ export class CicdStack extends Stack {
         resources: [
           `arn:aws:ssm:${this.region}:${this.account}:parameter/prod/fresnel/*`,
         ],
+      }),
+    );
+
+    // ECR: push backend images
+    apiRepository.grantPullPush(deployRole);
+
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['ecr:GetAuthorizationToken'],
+        resources: ['*'],
+      }),
+    );
+
+    // ECS: force new deployment of backend service
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['ecs:UpdateService', 'ecs:DescribeServices'],
+        resources: [apiService.serviceArn],
       }),
     );
 
