@@ -15,7 +15,7 @@ on:
 jobs:
   build-and-sign:
     name: Build, Sign & Notarize (macOS)
-    runs-on: macos-latest
+    runs-on: macos-15
     environment:
       name: production
     permissions:
@@ -130,7 +130,7 @@ jobs:
 
   cleanup:
     name: Cleanup Keychain
-    runs-on: macos-latest
+    runs-on: macos-15
     needs: build-and-sign
     if: always()
     steps:
