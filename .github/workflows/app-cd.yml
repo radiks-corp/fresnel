@@ -29,6 +29,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_API_URL: https://api.reviewgpt.ca
 
       - name: Get Bucket Name
         uses: dkershner6/aws-ssm-getparameters-action@v2
