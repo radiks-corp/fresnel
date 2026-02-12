@@ -73,6 +73,7 @@ const codeStyle = {
   'hljs-attribute': { color: '#6f42c1' },
 }
 
+
 // Parse diff into structured file data
 function parseDiff(diffText) {
   if (!diffText) return []
