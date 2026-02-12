@@ -6,6 +6,7 @@ import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ScrollToBottom from 'react-scroll-to-bottom'
+import { trackEvent } from '../hooks/useAnalytics'
 import './ai-elements/ai-elements.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
@@ -302,6 +303,14 @@ export default function UnifiedReview({
         setReviewDuration(elapsed)
       }
 
+      trackEvent('Review Completed', {
+        lens: selectedLens?.id,
+        comments_found: reviewComments.length,
+        duration_seconds: reviewDuration,
+        repo: `${owner}/${repo}`,
+        pr_number: prNumber,
+      })
+
       if (reviewComments.length === 0) return
       summaryFetchedRef.current = true
       const token = getToken()
@@ -332,6 +341,7 @@ export default function UnifiedReview({
 
   const handleApplyComment = useCallback((commentId, comment) => {
     setAppliedComments(prev => new Set([...prev, commentId]))
+    trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
     if (onApplyComment) {
       onApplyComment(comment)
     }
@@ -342,9 +352,11 @@ export default function UnifiedReview({
 
   const handleDismissComment = useCallback((commentId) => {
     setDismissedComments(prev => new Set([...prev, commentId]))
+    trackEvent('Review Comment Dismissed', { comment_id: commentId })
   }, [])
 
   const handleJumpTo = useCallback((comment) => {
+    trackEvent('Review Comment Show Clicked', { file: comment.path, line: comment.line })
     if (onJumpToLine) {
       onJumpToLine(comment.path, comment.line)
     }
@@ -357,12 +369,22 @@ export default function UnifiedReview({
 
     if (isAskMode) {
       // Ask mode - use chat endpoint
+      trackEvent('Chat Message Sent', {
+        repo: `${owner}/${repo}`,
+        pr_number: prNumber,
+      })
       sendChatMessage({ text: input })
       setInput('')
     } else {
       // Review mode - use review endpoint
       setHasStarted(true)
       reviewStartTimeRef.current = Date.now()
+      trackEvent('Review Started', {
+        lens: selectedLens.id,
+        has_instructions: !!input.trim(),
+        repo: `${owner}/${repo}`,
+        pr_number: prNumber,
+      })
       sendReviewMessage({ 
         text: input.trim() 
           ? `Review with focus: ${selectedLens.id}. Notes: ${input}` 
@@ -384,6 +406,9 @@ export default function UnifiedReview({
   }
 
   const handleClearLens = () => {
+    if (selectedLens) {
+      trackEvent('Lens Cleared', { lens: selectedLens.id })
+    }
     setSelectedLens(null)
     setHasStarted(false)
     setInput('')
@@ -446,6 +471,13 @@ export default function UnifiedReview({
         throw new Error(error.message || 'Failed to submit review')
       }
 
+      trackEvent('Review Submitted to GitHub', {
+        repo: `${owner}/${repo}`,
+        pr_number: prNumber,
+        review_type: reviewType,
+        comments_count: comments.length,
+      })
+
       // Success - close the dropup and reset
       setShowSubmitDropup(false)
       setSubmitComment('')
@@ -453,6 +485,7 @@ export default function UnifiedReview({
       handleClearLens()
     } catch (err) {
       setSubmitError(err.message)
+      trackEvent('Review Submit Failed', { error: err.message })
     } finally {
       setIsSubmitting(false)
     }
@@ -470,7 +503,7 @@ export default function UnifiedReview({
         <div className="review-status-row">
           <SpinnerGap size={16} className="spinning review-status-spinner" />
           <span className="review-status-text">Reading the pull request...</span>
-          <button className="review-status-stop" onClick={stopReview}>
+          <button className="review-status-stop" onClick={() => { stopReview(); trackEvent('Review Stopped', { repo: `${owner}/${repo}`, pr_number: prNumber }) }}>
             Stop
           </button>
         </div>
@@ -516,6 +549,7 @@ export default function UnifiedReview({
                   className={`lens-option ${selectedLens?.id === lens.id ? 'selected' : ''}`}
                   onClick={() => {
                     setSelectedLens(lens)
+                    trackEvent('Lens Selected', { lens: lens.id, lens_label: lens.label })
                     close()
                   }}
                 >
@@ -600,7 +634,7 @@ export default function UnifiedReview({
               <label className={`submit-option ${reviewType === 'comment' ? 'selected' : ''}`}>
                 <input type="radio" name="reviewType" value="comment"
                   checked={reviewType === 'comment'}
-                  onChange={(e) => setReviewType(e.target.value)}
+                  onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'comment' }) }}
                 />
                 <span className="option-radio" />
                 <div className="option-content">
@@ -611,7 +645,7 @@ export default function UnifiedReview({
               <label className={`submit-option ${reviewType === 'approve' ? 'selected' : ''}`}>
                 <input type="radio" name="reviewType" value="approve"
                   checked={reviewType === 'approve'}
-                  onChange={(e) => setReviewType(e.target.value)}
+                  onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'approve' }) }}
                 />
                 <span className="option-radio" />
                 <div className="option-content">
@@ -622,7 +656,7 @@ export default function UnifiedReview({
               <label className={`submit-option ${reviewType === 'request_changes' ? 'selected' : ''}`}>
                 <input type="radio" name="reviewType" value="request_changes"
                   checked={reviewType === 'request_changes'}
-                  onChange={(e) => setReviewType(e.target.value)}
+                  onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'request_changes' }) }}
                 />
                 <span className="option-radio" />
                 <div className="option-content">
@@ -635,7 +669,7 @@ export default function UnifiedReview({
           <div className="submit-accordion-footer">
             <button 
               className="submit-dropup-cancel" 
-              onClick={() => setShowSubmitDropup(false)}
+              onClick={() => { setShowSubmitDropup(false); trackEvent('Review Submit Cancelled') }}
               disabled={isSubmitting}
             >
               Cancel

@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext } from 'react'
+import { identifyUser, resetAnalytics, trackEvent } from './useAnalytics'
 
 const AuthContext = createContext(null)
 
@@ -41,10 +42,17 @@ export function AuthProvider({ children }) {
         setUser(userData)
         setToken(pat)
         localStorage.setItem('github_pat', pat)
+        // Identify user for analytics (no PAT stored)
+        identifyUser(userData)
+        trackEvent('User Logged In', {
+          github_login: userData.login,
+          app_type: isElectron() ? 'electron' : 'web',
+        })
         // Start Electron polling when authenticated
         startElectronPolling(pat)
         return true
       }
+      trackEvent('User Login Failed')
       return false
     } catch (error) {
       console.error('Failed to fetch user:', error)
@@ -60,6 +68,8 @@ export function AuthProvider({ children }) {
       fetchUser(storedPat).then(success => {
         if (!success) {
           localStorage.removeItem('github_pat')
+        } else {
+          // Re-identify on page reload (fetchUser already calls identifyUser)
         }
         setLoading(false)
       })
@@ -76,9 +86,11 @@ export function AuthProvider({ children }) {
   }
 
   const logout = () => {
+    trackEvent('User Logged Out')
     localStorage.removeItem('github_pat')
     setUser(null)
     setToken(null)
+    resetAnalytics()
     // Stop Electron polling on logout
     stopElectronPolling()
   }

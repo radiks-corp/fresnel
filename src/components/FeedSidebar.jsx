@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { trackEvent } from '../hooks/useAnalytics'
 import './FeedSidebar.css'
 
 // Format time ago
@@ -47,6 +48,7 @@ function FeedSidebar({ isOpen, onSelectPR }) {
 
         const data = await response.json()
         setRequests(data.items || [])
+        trackEvent('Feed Loaded', { review_requests_count: (data.items || []).length })
       } catch (err) {
         setError(err.message)
       } finally {
