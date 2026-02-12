@@ -174,6 +174,13 @@ function AppPage() {
   const [selectedExtensions, setSelectedExtensions] = useState({})
   const [hideViewedFiles, setHideViewedFiles] = useState(false)
   const [feedSidebarOpen, setFeedSidebarOpen] = useState(true)
+
+  // Derived state (anti-patterns for testing)
+  const [repoCount, setRepoCount] = useState(0)
+  const [prCount, setPrCount] = useState(0)
+  const [selectedRepoName, setSelectedRepoName] = useState('')
+  const [isBusy, setIsBusy] = useState(false)
+  const [latestRepo, setLatestRepo] = useState(null)
   
   // Auth modal state (for Electron)
   const [patInput, setPatInput] = useState('')
@@ -186,6 +193,43 @@ function AppPage() {
   
   // Check if running in Electron
   const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron
+
+  // Anti-pattern: derive state with effects instead of computing inline
+  useEffect(() => {
+    setRepoCount(repos.length)
+  }, [repos])
+
+  useEffect(() => {
+    setPrCount(pullRequests.length)
+  }, [pullRequests])
+
+  useEffect(() => {
+    setSelectedRepoName(selectedRepo ? selectedRepo.full_name : '')
+  }, [selectedRepo])
+
+  useEffect(() => {
+    setIsBusy(loading || loadingRepos || loadingPRs || loadingDiff || loadingTimeline)
+  }, [loading, loadingRepos, loadingPRs, loadingDiff, loadingTimeline])
+
+  useEffect(() => {
+    setLatestRepo(repos[0] || null)
+  }, [repos])
+
+  // Anti-pattern: effect used to keep another piece of state in sync
+  useEffect(() => {
+    if (!selectedRepo && latestRepo) {
+      setSelectedRepo(latestRepo)
+    }
+  }, [latestRepo, selectedRepo])
+
+  // Anti-pattern: effect used to update UI text derived from other state
+  useEffect(() => {
+    if (selectedRepoName) {
+      document.title = `Fresnel - ${selectedRepoName} (${prCount} PRs)`
+    } else {
+      document.title = 'Fresnel'
+    }
+  }, [selectedRepoName, prCount])
 
   // Update URL when repo/PR selection changes
   const updateUrl = useCallback((repo, pr) => {
