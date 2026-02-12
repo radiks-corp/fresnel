@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { trackEvent } from '../hooks/useAnalytics'
 import '../landing.css'
 import tahoeWallpaper from '../tahoe_wallpaper.jpg'
 import dockImage from '../Dock.png'
@@ -34,6 +35,11 @@ function Landing() {
     return () => cancelAnimationFrame(animationFrame)
   }, [])
 
+  // Track landing page view on mount
+  useEffect(() => {
+    trackEvent('Page Viewed', { page: 'landing' })
+  }, [])
+
   // Collapse expanded card on mobile resize
   useEffect(() => {
     const handleResize = () => {
@@ -60,6 +66,9 @@ function Landing() {
   const handleCardClick = (cardId, e) => {
     // Disable card expansion on mobile
     if (window.innerWidth <= 768) return
+    
+    const cardNames = { 1: 'Saved Lenses', 2: 'Vibe Check', 3: 'Human-in-the-loop' }
+    trackEvent('Feature Card Clicked', { card_id: cardId, card_name: cardNames[cardId] })
     
     const video = e.currentTarget.querySelector('video')
     if (expandedCard === cardId) {
@@ -91,7 +100,7 @@ function Landing() {
           <div className="nav-links">
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
-            <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download>Download Now</a>
+            <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'nav' })}>Download Now</a>
           </div>
         </div>
       </nav>
@@ -106,8 +115,8 @@ function Landing() {
             <h1>Review code at <span className="light-speed-text">light speed</span></h1>
             <p className="subtitle">The complete AI suite for code review.</p>
             <div className="buttons">
-              <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download>Download Now</a>
-              <button className="btn-secondary">Watch Demo</button>
+              <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'hero' })}>Download Now</a>
+              <button className="btn-secondary" onClick={() => trackEvent('Watch Demo Clicked')}>Watch Demo</button>
             </div>
           </div>
         </section>
@@ -416,7 +425,7 @@ function Landing() {
 
         <section className="bottom-cta">
           <p>Code review doesn't have to be a chore.</p>
-          <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download>Download Now</a>
+          <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'bottom_cta' })}>Download Now</a>
         </section>
 
       </main>

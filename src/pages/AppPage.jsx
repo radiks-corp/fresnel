@@ -15,6 +15,7 @@ import remarkEmoji from 'remark-emoji'
 import { CaretDown, CaretRight, Check, MagnifyingGlass, File, Folder, FolderOpen, Funnel, SidebarSimple } from '@phosphor-icons/react'
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import { useAuth } from '../hooks/useAuth.jsx'
+import { trackEvent } from '../hooks/useAnalytics'
 import ReviewSidebar from '../components/ReviewSidebar'
 import FeedSidebar from '../components/FeedSidebar'
 import InlineCommentEditor from '../components/InlineCommentEditor'
@@ -187,6 +188,11 @@ function AppPage() {
   // Check if running in Electron
   const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron
 
+  // Track app page view on mount
+  useEffect(() => {
+    trackEvent('Page Viewed', { page: 'app' })
+  }, [])
+
   // Update URL when repo/PR selection changes
   const updateUrl = useCallback((repo, pr) => {
     if (repo && pr) {
@@ -224,6 +230,7 @@ function AppPage() {
     setPatLoading(false)
     if (!success) {
       setPatError('Invalid token. Make sure it has repo access.')
+      trackEvent('PAT Submission Failed', { source: 'electron_modal' })
     }
   }
 
@@ -400,6 +407,7 @@ function AppPage() {
   const toggleViewed = (fileName) => {
     const newViewedState = !viewedFiles[fileName]
     setViewedFiles(prev => ({ ...prev, [fileName]: newViewedState }))
+    trackEvent('File Marked Viewed', { file: fileName, viewed: newViewedState })
     // Collapse when marking as viewed
     if (newViewedState) {
       setCollapsedFiles(prev => ({ ...prev, [fileName]: true }))
@@ -407,10 +415,13 @@ function AppPage() {
   }
 
   const toggleCollapsed = (fileName) => {
+    const willCollapse = !collapsedFiles[fileName]
     setCollapsedFiles(prev => ({ ...prev, [fileName]: !prev[fileName] }))
+    trackEvent('File Diff Toggled', { file: fileName, collapsed: willCollapse })
   }
 
   const scrollToFile = (fileName) => {
+    trackEvent('File Clicked', { file: fileName })
     const el = document.getElementById(`file-${fileName.replace(/[^a-zA-Z0-9]/g, '-')}`)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -443,6 +454,7 @@ function AppPage() {
       if (prev.some(c => c.id === comment.id)) return prev
       return [...prev, comment]
     })
+    trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
   }, [])
 
   const handleEditComment = useCallback((commentId, newBody) => {
@@ -450,10 +462,12 @@ function AppPage() {
       c.id === commentId ? { ...c, body: newBody } : c
     ))
     setEditingComment(null)
+    trackEvent('Inline Comment Edited', { comment_id: commentId })
   }, [])
 
   const handleDeleteComment = useCallback((commentId) => {
     setPendingComments(prev => prev.filter(c => c.id !== commentId))
+    trackEvent('Inline Comment Deleted', { comment_id: commentId })
   }, [])
 
   const handleInlineCommentSubmit = useCallback(({ body, type }, fileName, lineNum) => {
@@ -467,10 +481,12 @@ function AppPage() {
     }
     setPendingComments(prev => [...prev, comment])
     setCommentEditorOpen(null)
+    trackEvent('Inline Comment Submitted', { file: fileName, line: lineNum, type })
   }, [])
 
   // Handle selecting a PR from the feed
-  const handleSelectPR = useCallback(async ({ owner, repo: repoName, number }) => {
+  const handleSelectPR = useCallback(async ({ owner, repo: repoName, number, title }) => {
+    trackEvent('Feed PR Clicked', { repo: `${owner}/${repoName}`, pr_number: number, pr_title: title })
     const token = getToken()
     if (!token) return
 
@@ -537,10 +553,13 @@ function AppPage() {
   const clearFilters = () => {
     setSelectedExtensions({})
     setHideViewedFiles(false)
+    trackEvent('File Filters Cleared')
   }
 
   const toggleExtension = (ext) => {
+    const newState = !selectedExtensions[ext]
     setSelectedExtensions(prev => ({ ...prev, [ext]: !prev[ext] }))
+    trackEvent('File Filter Applied', { extension: ext, enabled: newState })
   }
 
   const fileTree = useMemo(() => {
@@ -703,6 +722,11 @@ function AppPage() {
                       onClick={() => {
                         setSelectedRepo(repo)
                         navigate(`/app/${repo.id}`, { replace: true })
+                        trackEvent('Repository Selected', {
+                          repo_name: `${repo.owner.login}/${repo.name}`,
+                          repo_id: repo.id,
+                          is_private: repo.private,
+                        })
                         close()
                       }}
                     >
@@ -742,6 +766,11 @@ function AppPage() {
                         onClick={() => {
                           setSelectedPR(pr)
                           updateUrl(selectedRepo, pr)
+                          trackEvent('PR Selected', {
+                            pr_number: pr.number,
+                            pr_title: pr.title,
+                            repo_name: selectedRepo ? `${selectedRepo.owner.login}/${selectedRepo.name}` : undefined,
+                          })
                           close()
                         }}
                       >
@@ -759,7 +788,7 @@ function AppPage() {
         <div className="header-right">
           <button 
             className="feed-toggle-btn"
-            onClick={() => setFeedSidebarOpen(!feedSidebarOpen)}
+            onClick={() => { const next = !feedSidebarOpen; setFeedSidebarOpen(next); trackEvent('Feed Sidebar Toggled', { is_open: next }) }}
             title={feedSidebarOpen ? 'Close feed' : 'Open feed'}
           >
             <SidebarSimple 
@@ -773,13 +802,13 @@ function AppPage() {
       <div className="tabs-bar">
         <button 
           className={`tab ${activeTab === 'conversation' ? 'active' : ''}`}
-          onClick={() => setActiveTab('conversation')}
+          onClick={() => { setActiveTab('conversation'); trackEvent('Tab Changed', { tab: 'conversation' }) }}
         >
           Conversation <span className="tab-count">{timeline.filter(t => t.type === 'issue_comment' || t.type === 'review').length + (prDetails?.body ? 1 : 0)}</span>
         </button>
         <button 
           className={`tab ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => setActiveTab('files')}
+          onClick={() => { setActiveTab('files'); trackEvent('Tab Changed', { tab: 'files_changed' }) }}
         >
           Files changed <span className="tab-count">{parsedFiles.length}</span>
         </button>
@@ -1010,7 +1039,7 @@ function AppPage() {
                                     <td className="line-num old">{line.oldNum || ''}</td>
                                     <td 
                                       className="line-num new clickable"
-                                      onClick={() => lineNum && setCommentEditorOpen({ file: file.fileName, line: lineNum })}
+                                      onClick={() => { if (lineNum) { setCommentEditorOpen({ file: file.fileName, line: lineNum }); trackEvent('Inline Comment Started', { file: file.fileName, line: lineNum }) } }}
                                       title={lineNum ? 'Click to add a comment' : ''}
                                     >
                                       {line.newNum || ''}
@@ -1124,7 +1153,7 @@ function AppPage() {
                                             fileName={file.fileName}
                                             lineNum={lineNum}
                                             onSubmit={(data) => handleInlineCommentSubmit(data, file.fileName, lineNum)}
-                                            onCancel={() => setCommentEditorOpen(null)}
+                                            onCancel={() => { setCommentEditorOpen(null); trackEvent('Inline Comment Cancelled', { file: file.fileName, line: lineNum }) }}
                                             hasExistingComments={pendingComments.length > 0}
                                           />
                                         </div>
