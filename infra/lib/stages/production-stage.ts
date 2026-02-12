@@ -68,7 +68,16 @@ export function productionStage(
     certificate: certificatesStack.certificate,
   });
 
-  // CI/CD: deployer IAM user
+  // API: api.reviewgpt.ca
+  const apiStack = new ApiStack(scope, 'fresnel-api-stack', {
+    env,
+    crossRegionReferences: true,
+    hostedZone: dnsStack.hostedZone,
+    regionalCertificate: dnsStack.regionalCertificate,
+    globalCertificate: certificatesStack.certificate,
+  });
+
+  // CI/CD: deployer IAM role (OIDC)
   new CicdStack(scope, 'fresnel-cicd-stack', {
     env,
     homepageBucket: homepageStack.bucket,
@@ -77,14 +86,7 @@ export function productionStage(
     appDistribution: appStack.distribution,
     releasesBucket: releasesStack.bucket,
     releasesDistribution: releasesStack.distribution,
-  });
-
-  // API: api.reviewgpt.ca
-  new ApiStack(scope, 'fresnel-api-stack', {
-    env,
-    crossRegionReferences: true,
-    hostedZone: dnsStack.hostedZone,
-    regionalCertificate: dnsStack.regionalCertificate,
-    globalCertificate: certificatesStack.certificate,
+    apiRepository: apiStack.repository,
+    apiService: apiStack.ecsService,
   });
 }

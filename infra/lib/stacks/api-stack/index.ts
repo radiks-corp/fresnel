@@ -38,6 +38,10 @@ interface ApiStackProps extends StackProps {
  * - CloudFront caching disabled (API passthrough)
  */
 export class ApiStack extends Stack {
+  public readonly repository: ecr.IRepository;
+  public readonly cluster: ecs.ICluster;
+  public readonly ecsService: ecs.IBaseService;
+
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
 
@@ -70,6 +74,9 @@ export class ApiStack extends Stack {
     const repository = new ecr.Repository(this, 'fresnel-api-repo', {
       repositoryName: 'fresnel-api',
     });
+
+    this.repository = repository;
+    this.cluster = cluster;
 
     // ALB + Fargate service - smallest possible
     const service = new ecsPatterns.ApplicationLoadBalancedFargateService(
@@ -112,6 +119,8 @@ export class ApiStack extends Stack {
       }),
     );
 
+
+    this.ecsService = service.service;
 
     // Health check
     service.targetGroup.configureHealthCheck({
