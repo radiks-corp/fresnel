@@ -484,7 +484,7 @@ function AppPage() {
     trackEvent('Inline Comment Submitted', { file: fileName, line: lineNum, type })
   }, [])
 
-  // Handle selecting a PR from the feed
+  // Handle selecting a PR from the feed — just navigate and let existing effects handle the rest
   const handleSelectPR = useCallback(async ({ owner, repo: repoName, number, title }) => {
     trackEvent('Feed PR Clicked', { repo: `${owner}/${repoName}`, pr_number: number, pr_title: title })
     const token = getToken()
@@ -494,7 +494,6 @@ function AppPage() {
     let targetRepo = repos.find(r => r.owner.login === owner && r.name === repoName)
     
     if (!targetRepo) {
-      // Repo not in our list, try to fetch it
       try {
         const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
           headers: { 'Authorization': `Bearer ${token}` },
@@ -511,25 +510,10 @@ function AppPage() {
 
     if (targetRepo) {
       setSelectedRepo(targetRepo)
-      // Fetch PRs for this repo and select the right one
-      try {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/repos/${owner}/${repoName}/pulls`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        )
-        const prs = await response.json()
-        setPullRequests(prs)
-        const targetPR = prs.find(pr => pr.number === number)
-        if (targetPR) {
-          setSelectedPR(targetPR)
-          updateUrl(targetRepo, targetPR)
-          setFeedSidebarOpen(false)
-        }
-      } catch (error) {
-        console.error('Failed to fetch PRs:', error)
-      }
+      navigate(`/app/${targetRepo.id}/${number}`, { replace: true })
+      setFeedSidebarOpen(false)
     }
-  }, [repos, getToken, updateUrl])
+  }, [repos, getToken, navigate])
 
   const toggleFolder = (folderPath) => {
     setCollapsedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))
