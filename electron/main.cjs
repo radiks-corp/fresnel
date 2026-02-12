@@ -25,7 +25,7 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadURL('https://app.reviewgpt.ca');
   }
 
   mainWindow.on('closed', () => {
