@@ -91,6 +91,41 @@ nav {
   color: var(--gray-900);
 }
 
+@media (max-width: 768px) {
+  .nav-inner {
+    padding: 0 16px;
+    height: 52px;
+  }
+
+  .nav-links {
+    gap: 16px;
+  }
+
+  .nav-links a:not(.btn-primary) {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-inner {
+    padding: 0 12px;
+  }
+
+  .logo {
+    font-size: 16px;
+  }
+
+  .logo-mark {
+    width: 20px;
+    height: 20px;
+  }
+
+  .nav-links .btn-primary {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+}
+
 /* Buttons */
 .btn-primary,
 a.btn-primary,
@@ -366,10 +401,35 @@ a.btn-primary:hover {
   }
 }
 
+@media (max-width: 768px) {
+  .hero {
+    padding-top: 110px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+  }
+
+  .buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .buttons .btn-primary,
+  .buttons .btn-secondary {
+    text-align: center;
+  }
+}
+
 @media (max-width: 480px) {
   .hero h1 {
     font-size: 38px;
     letter-spacing: -0.02em;
+  }
+
+  .hero {
+    padding-top: 100px;
+    padding-bottom: 40px;
   }
 
   .lens-backdrop {
