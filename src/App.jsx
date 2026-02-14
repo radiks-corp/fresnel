@@ -5,12 +5,12 @@ import { AuthProvider } from './hooks/useAuth.jsx'
 const Landing = lazy(() => import('./pages/Landing'))
 const AppPage = lazy(() => import('./pages/AppPage'))
 
-// app.reviewgpt.ca (and Electron, which now loads it) skips the landing page
+// app.reviewgpt.ca or Electron — skip the landing page, go straight to the app
 const isAppSubdomain = typeof window !== 'undefined' && window.location.hostname === 'app.reviewgpt.ca'
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron
 
 function App() {
-  // app.reviewgpt.ca / Electron — skip landing page, go straight to the app
-  if (isAppSubdomain) {
+  if (isAppSubdomain || isElectron) {
     return (
       <AuthProvider>
         <BrowserRouter>
