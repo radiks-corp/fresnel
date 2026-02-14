@@ -299,12 +299,21 @@ a.btn-chip {
   z-index: 2;
   border-radius: 12px;
   overflow: hidden;
+  background: var(--gray-100);
+  aspect-ratio: 1632 / 1080;
 }
 
 .screenshot-box img,
 .screenshot-box video {
   width: 100%;
   display: block;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.screenshot-box img.loaded,
+.screenshot-box video.loaded {
+  opacity: 1;
 }
 
 @media (max-width: 768px) {
@@ -508,6 +517,12 @@ a.btn-chip {
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.feature-slide video.loaded {
+  opacity: 1;
 }
 
 @media (max-width: 768px) {
