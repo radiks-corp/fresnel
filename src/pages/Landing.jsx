@@ -1,89 +1,56 @@
-import { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { trackEvent } from '../hooks/useAnalytics'
 import '../landing.css'
 import tahoeWallpaper from '../tahoe_wallpaper.jpg'
 import dockImage from '../Dock.png'
-import screenshotImg from '../screenshot.png'
+
+const featureTabs = [
+  { id: 0, label: 'Lenses', video: '/lens.mp4', tag: 'Saved Lenses', title: 'Lenses that remember', desc: 'Save custom review patterns. Flag useEffect anti-patterns, catch missing error handling, enforce conventions.' },
+  { id: 1, label: 'Chat', video: '/vibe-check.mp4', tag: 'On-the-fly', title: 'Vibe-check any PR', desc: 'Quick ad-hoc reviews when you need a second opinion. "Will this break prod?" Instant answers.' },
+  { id: 2, label: 'Submit', video: '/sends-to-github.mp4', tag: 'Human-in-the-loop', title: 'Actually good AI review', desc: 'Accept or reject suggestions in-app. Your coworker sees refined comments, not AI slop.' },
+]
 
 function Landing() {
-  const [expandedCard, setExpandedCard] = useState(null)
-  const [lensTilt, setLensTilt] = useState({ x: 0, y: 0 })
-  const lensRef = useRef(null)
-
-  // Continuous smooth circular animation
-  useEffect(() => {
-    let animationFrame
-    let startTime = Date.now()
-    
-    const animate = () => {
-      const elapsed = Date.now() - startTime
-      const duration = 8000 // 8 seconds for full circle
-      const progress = (elapsed % duration) / duration
-      
-      // Circular motion using sin/cos
-      const angle = progress * Math.PI * 2
-      const radius = 6 // Small tilt amount
-      const x = Math.sin(angle) * radius
-      const y = -Math.cos(angle) * radius
-      
-      setLensTilt({ x, y })
-      animationFrame = requestAnimationFrame(animate)
-    }
-    
-    animationFrame = requestAnimationFrame(animate)
-    return () => cancelAnimationFrame(animationFrame)
-  }, [])
+  const [activeFeature, setActiveFeature] = useState(0)
+  const videoRefs = useRef([])
+  const tabsRef = useRef(null)
+  const [indicatorStyle, setIndicatorStyle] = useState({})
 
   // Track landing page view on mount
   useEffect(() => {
     trackEvent('Page Viewed', { page: 'landing' })
   }, [])
 
-  // Collapse expanded card on mobile resize
+  // Update indicator position when active tab changes
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth <= 768 && expandedCard) {
-        setExpandedCard(null)
-      }
-    }
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [expandedCard])
+    if (!tabsRef.current) return
+    const activeBtn = tabsRef.current.querySelectorAll('.feature-tab')[activeFeature]
+    if (!activeBtn) return
+    const parentRect = tabsRef.current.getBoundingClientRect()
+    const btnRect = activeBtn.getBoundingClientRect()
+    setIndicatorStyle({
+      left: btnRect.left - parentRect.left,
+      width: btnRect.width,
+    })
+  }, [activeFeature])
 
-  const handleVideoHover = (e, play) => {
-    const video = e.currentTarget.querySelector('video')
-    if (video) {
-      if (play) {
-        video.play()
+  // Play active video, pause others
+  useEffect(() => {
+    videoRefs.current.forEach((video, i) => {
+      if (!video) return
+      if (i === activeFeature) {
+        video.currentTime = 0
+        video.play().catch(() => {})
       } else {
         video.pause()
-        video.currentTime = 0
       }
-    }
-  }
+    })
+  }, [activeFeature])
 
-  const handleCardClick = (cardId, e) => {
-    // Disable card expansion on mobile
-    if (window.innerWidth <= 768) return
-    
-    const cardNames = { 1: 'Saved Lenses', 2: 'Vibe Check', 3: 'Human-in-the-loop' }
-    trackEvent('Feature Card Clicked', { card_id: cardId, card_name: cardNames[cardId] })
-    
-    const video = e.currentTarget.querySelector('video')
-    if (expandedCard === cardId) {
-      setExpandedCard(null)
-      if (video) {
-        video.pause()
-        video.currentTime = 0
-      }
-    } else {
-      setExpandedCard(cardId)
-      if (video) {
-        video.play()
-      }
-    }
-  }
+  const handleFeatureClick = useCallback((id) => {
+    trackEvent('Feature Tab Clicked', { tab_id: id, tab_name: featureTabs[id].label })
+    setActiveFeature(id)
+  }, [])
 
   return (
     <>
@@ -100,7 +67,7 @@ function Landing() {
           <div className="nav-links">
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
-            <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'nav' })}>Download Now</a>
+            <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary btn-chip" download onClick={() => trackEvent('Download Clicked', { location: 'nav' })}>Download Now</a>
           </div>
         </div>
       </nav>
@@ -108,89 +75,22 @@ function Landing() {
       <main>
         <section className="hero">
           <div className="hero-content">
-            <span className="badge">
-              <span className="badge-dot"></span>
-              Now available for macOS
-            </span>
-            <h1>Review code at <span className="light-speed-text">light speed</span></h1>
-            <p className="subtitle">The complete AI suite for code review.</p>
+            <h1>Built to help your team ship faster,<br />Fresnel helps you review code with AI.</h1>
             <div className="buttons">
-              <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'hero' })}>Download Now</a>
-              <button className="btn-secondary" onClick={() => trackEvent('Watch Demo Clicked')}>Watch Demo</button>
+              <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'hero' })}>Download for macOS <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginLeft: '6px'}}><path d="M8 1.5V9M8 9L5 6M8 9L11 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 10V12.5C2.5 13.0523 2.94772 13.5 3.5 13.5H12.5C13.0523 13.5 13.5 13.0523 13.5 12.5V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></a>
             </div>
           </div>
         </section>
 
         <section className="screenshot">
-          {/* Lens effect positioned behind screenshot */}
-          <div className="lens-backdrop">
-            <div className="light-beam-in"></div>
-            <motion.div
-              ref={lensRef}
-              className="lens-effect"
-              initial={{ opacity: 1, scale: 1 }}
-              animate={{ opacity: 1, scale: 1 }}
-            >
-              <div 
-                className="lens-inner"
-                style={{
-                  transform: `perspective(400px) rotateX(${-lensTilt.y}deg) rotateY(${lensTilt.x}deg)`,
-                }}
-              >
-                <div className="lens-silver-base"></div>
-                <svg className="lens-rings" viewBox="0 0 200 200">
-                  <circle cx="100" cy="100" r="95" strokeWidth="5" />
-                  <circle cx="100" cy="100" r="88" strokeWidth="4.8" />
-                  <circle cx="100" cy="100" r="81" strokeWidth="4.6" />
-                  <circle cx="100" cy="100" r="74" strokeWidth="4.4" />
-                  <circle cx="100" cy="100" r="67" strokeWidth="4.2" />
-                  <circle cx="100" cy="100" r="60" strokeWidth="4" />
-                  <circle cx="100" cy="100" r="53" strokeWidth="3.8" />
-                  <circle cx="100" cy="100" r="46" strokeWidth="3.5" />
-                  <circle cx="100" cy="100" r="39" strokeWidth="3.2" />
-                  <circle cx="100" cy="100" r="32" strokeWidth="2.8" />
-                  <circle cx="100" cy="100" r="25" strokeWidth="2.4" />
-                  <circle cx="100" cy="100" r="18" strokeWidth="2" />
-                  <circle cx="100" cy="100" r="11" strokeWidth="1.5" />
-                  <circle cx="100" cy="100" r="5" strokeWidth="1" />
-                </svg>
-                <div className="lens-highlight"></div>
-                <div 
-                  className="lens-shine"
-                  style={{
-                    background: `linear-gradient(
-                      ${135 - lensTilt.x * 2}deg,
-                      transparent 0%,
-                      transparent 44%,
-                      rgba(255, 255, 255, 0.25) 48%,
-                      rgba(255, 255, 255, 0.35) 50%,
-                      rgba(255, 255, 255, 0.25) 52%,
-                      transparent 56%,
-                      transparent 100%
-                    )`,
-                  }}
-                ></div>
-              </div>
-            </motion.div>
-
-            <div 
-              className="light-beam-out"
-              style={{
-                transform: `translateY(calc(-50% + ${lensTilt.y * 0.5}px))`,
-              }}
-            >
-              <div 
-                className="rainbow-beam"
-                style={{
-                  transform: `rotate(${lensTilt.y * 0.2}deg) scaleY(${1 + Math.abs(lensTilt.x) * 0.005})`,
-                  opacity: 0.7 + Math.abs(lensTilt.x) * 0.01,
-                }}
-              ></div>
-            </div>
-          </div>
-
           <div className="screenshot-box">
-            <img src={screenshotImg} alt="Fresnel app screenshot" />
+            <video
+              src="/demo.mp4"
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
           </div>
         </section>
 
@@ -207,141 +107,58 @@ function Landing() {
 
         <section className="features" id="features">
           <h2>Code review at light speed</h2>
-          <p className="subtitle">AI-powered lenses that understand your codebase.</p>
-          
-          <div className="cards">
-            <motion.div 
-              className={`card ${expandedCard === 1 ? 'expanded' : ''}`}
-              onClick={(e) => handleCardClick(1, e)}
-              onMouseEnter={(e) => !expandedCard && handleVideoHover(e, true)}
-              onMouseLeave={(e) => !expandedCard && handleVideoHover(e, false)}
-              layout
-            >
-              <motion.div 
-                className="card-video"
-                layout
+
+          <div className="feature-tabs" ref={tabsRef}>
+            {featureTabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`feature-tab ${activeFeature === tab.id ? 'active' : ''}`}
+                onClick={() => handleFeatureClick(tab.id)}
               >
-                <video 
-                  src="/lens.mp4" 
-                  muted 
-                  loop 
-                  playsInline
-                />
-                <AnimatePresence>
-                  {expandedCard !== 1 && (
-                    <motion.div 
-                      className="video-overlay"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                    >
-                      <span className="play-icon">▶</span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              <motion.div className="card-content" layout>
-                <span className="tag">Saved Lenses</span>
-                <h3>Lenses that remember</h3>
-                <p>
-                  Save custom review patterns. Flag useEffect anti-patterns, 
-                  catch missing error handling, enforce conventions.
-                </p>
-              </motion.div>
-            </motion.div>
-            
-            <motion.div 
-              className={`card ${expandedCard === 2 ? 'expanded' : ''}`}
-              onClick={(e) => handleCardClick(2, e)}
-              onMouseEnter={(e) => !expandedCard && handleVideoHover(e, true)}
-              onMouseLeave={(e) => !expandedCard && handleVideoHover(e, false)}
-              layout
+                {tab.label}
+              </button>
+            ))}
+            <div
+              className="feature-tab-indicator"
+              style={{
+                transform: `translateX(${indicatorStyle.left ?? 0}px)`,
+                width: indicatorStyle.width ?? 0,
+              }}
+            />
+          </div>
+
+          <div className="feature-desc">
+            <h3 className="feature-title">{featureTabs[activeFeature].title}</h3>
+            <p className="feature-text">{featureTabs[activeFeature].desc}</p>
+          </div>
+
+          <div className="feature-viewport">
+            <div
+              className="feature-slides"
+              style={{ transform: `translateX(${-activeFeature * (100 / featureTabs.length)}%)` }}
             >
-              <motion.div 
-                className="card-video"
-                layout
-              >
-                <video 
-                  src="/vibe-check.mp4" 
-                  muted 
-                  loop 
-                  playsInline
-                />
-                <AnimatePresence>
-                  {expandedCard !== 2 && (
-                    <motion.div 
-                      className="video-overlay"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                    >
-                      <span className="play-icon">▶</span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              <motion.div className="card-content" layout>
-                <span className="tag">On-the-fly</span>
-                <h3>Vibe-check any PR</h3>
-                <p>
-                  Quick ad-hoc reviews when you need a second opinion. 
-                  "Will this break prod?" Instant answers.
-                </p>
-              </motion.div>
-            </motion.div>
-            
-            <motion.div 
-              className={`card ${expandedCard === 3 ? 'expanded' : ''}`}
-              onClick={(e) => handleCardClick(3, e)}
-              onMouseEnter={(e) => !expandedCard && handleVideoHover(e, true)}
-              onMouseLeave={(e) => !expandedCard && handleVideoHover(e, false)}
-              layout
-            >
-              <motion.div 
-                className="card-video"
-                layout
-              >
-                <video 
-                  src="/sends-to-github.mp4" 
-                  muted 
-                  loop 
-                  playsInline
-                />
-                <AnimatePresence>
-                  {expandedCard !== 3 && (
-                    <motion.div 
-                      className="video-overlay"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                    >
-                      <span className="play-icon">▶</span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              <motion.div className="card-content" layout>
-                <span className="tag">Human-in-the-loop</span>
-                <h3>Actually good AI review</h3>
-                <p>
-                  Accept or reject suggestions in-app. Your coworker sees 
-                  refined comments, not AI slop.
-                </p>
-              </motion.div>
-            </motion.div>
+              {featureTabs.map((tab, i) => (
+                <div className="feature-slide" key={tab.id}>
+                  <video
+                    ref={(el) => (videoRefs.current[i] = el)}
+                    src={tab.video}
+                    muted
+                    loop
+                    playsInline
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
         <section className="review-section" id="how-it-works">
           <div className="review-content">
             <div className="review-text">
-              <h2>Generate review comments</h2>
+              <h2>Don't repeat yourself</h2>
               <p>
-                Fresnel surfaces issues before they become problems. Accept 
-                what's useful, reject what's not.
-              </p>
-              <p>
-                Your teammates see thoughtful, human-curated feedback.
+                Fresnel suggests comments to add to your review. Your teammates 
+                see thoughtful, human curated feedback.
               </p>
             </div>
             
@@ -371,7 +188,7 @@ function Landing() {
                   <div className="comment-header">
                     <img 
                       className="comment-avatar" 
-                      src="https://avatars.githubusercontent.com/u/12345678?v=4" 
+                      src="https://avatars.githubusercontent.com/u/6249465?v=4" 
                       alt="Mitch Hynes"
                     />
                     <span className="comment-author">Mitch Hynes</span>
@@ -401,7 +218,7 @@ function Landing() {
                   <div className="comment-header">
                     <img 
                       className="comment-avatar" 
-                      src="https://avatars.githubusercontent.com/u/12345678?v=4" 
+                      src="https://avatars.githubusercontent.com/u/6249465?v=4" 
                       alt="Mitch Hynes"
                     />
                     <span className="comment-author">Mitch Hynes</span>
@@ -415,9 +232,6 @@ function Landing() {
                   </div>
                 </div>
                 <div className="fade-overlay"></div>
-              </div>
-              <div className="prompt-footer">
-                <div className="submit-review-btn">Submit review (1 comment)</div>
               </div>
             </div>
           </div>
