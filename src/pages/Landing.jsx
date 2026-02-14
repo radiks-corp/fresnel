@@ -90,6 +90,7 @@ function Landing() {
               muted
               loop
               playsInline
+              onLoadedData={(e) => e.target.classList.add('loaded')}
             />
           </div>
         </section>
@@ -145,6 +146,8 @@ function Landing() {
                     muted
                     loop
                     playsInline
+                    preload="auto"
+                    onLoadedData={(e) => e.target.classList.add('loaded')}
                   />
                 </div>
               ))}
