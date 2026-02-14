@@ -176,12 +176,24 @@ function AppPage() {
   const [hideViewedFiles, setHideViewedFiles] = useState(false)
   const [feedSidebarOpen, setFeedSidebarOpen] = useState(true)
   
-  // Auth modal state (for Electron)
+  // Auth modal state
   const [patInput, setPatInput] = useState('')
   const [patError, setPatError] = useState('')
   const [patLoading, setPatLoading] = useState(false)
+  const [patSuccess, setPatSuccess] = useState(false)
+  const [onboardingStep, setOnboardingStep] = useState(0)
+  const totalSteps = 3
+
+  const tokenScopes = [
+    { key: 'repo', label: 'repo', desc: 'Full control of private repositories' },
+    { key: 'repo:status', label: 'repo:status', desc: 'Access commit status', indent: true },
+    { key: 'repo_deployment', label: 'repo_deployment', desc: 'Access deployment status', indent: true },
+    { key: 'public_repo', label: 'public_repo', desc: 'Access public repositories', indent: true },
+    { key: 'repo:invite', label: 'repo:invite', desc: 'Access repository invitations', indent: true },
+    { key: 'security_events', label: 'security_events', desc: 'Read and write security events', indent: true },
+  ]
   
-  const { user, isAuthenticated, loading, logout, login } = useAuth()
+  const { user, isAuthenticated, loading, logout, login, validateToken } = useAuth()
   const navigate = useNavigate()
   const { repoId: urlRepoId, prNumber: urlPrNumber } = useParams()
   
@@ -210,28 +222,38 @@ function AppPage() {
   const parsedFiles = useMemo(() => parseDiff(diff), [diff])
   const viewedCount = Object.values(viewedFiles).filter(Boolean).length
 
-  useEffect(() => {
-    // Only redirect to landing page on web, not in Electron (modal handles auth)
-    if (!loading && !isAuthenticated && !isElectron) {
-      navigate('/')
+  // Auto-validate token on paste or input change
+  const handlePatChange = async (value) => {
+    setPatInput(value)
+    setPatError('')
+    setPatSuccess(false)
+
+    const trimmed = value.trim()
+    if (!trimmed || trimmed.length < 10) return
+
+    setPatLoading(true)
+    const valid = await validateToken(trimmed)
+    setPatLoading(false)
+
+    if (valid) {
+      setPatSuccess(true)
+    } else {
+      setPatError('Invalid token. Make sure it has repo access.')
+      trackEvent('PAT Submission Failed', { source: 'onboarding' })
     }
-  }, [loading, isAuthenticated, navigate, isElectron])
-  
-  // Handle PAT submission in Electron
+  }
+
+  // Connect button — actually save the token
   const handlePatSubmit = async (e) => {
     e.preventDefault()
     if (!patInput.trim()) {
       setPatError('Please enter a token')
       return
     }
+    if (!patSuccess) return
     setPatLoading(true)
-    setPatError('')
-    const success = await login(patInput.trim())
+    await login(patInput.trim())
     setPatLoading(false)
-    if (!success) {
-      setPatError('Invalid token. Make sure it has repo access.')
-      trackEvent('PAT Submission Failed', { source: 'electron_modal' })
-    }
   }
 
   useEffect(() => {
@@ -1177,36 +1199,114 @@ function AppPage() {
         pendingComments={pendingComments}
       />
 
-      {/* Electron Auth Modal - shown over blurred app when not authenticated */}
-      {isElectron && !isAuthenticated && !loading && (
-        <div className="electron-auth-overlay">
-          <div className="electron-auth-modal">
-            <h2 className="electron-auth-title">Connect to GitHub</h2>
-            <p className="electron-auth-desc">
-              Enter your Personal Access Token with <code>repo</code> scope.
-            </p>
-            <form onSubmit={handlePatSubmit}>
-              <input
-                type="password"
-                className="electron-auth-input"
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                value={patInput}
-                onChange={e => setPatInput(e.target.value)}
-                autoFocus
-              />
-              {patError && <p className="electron-auth-error">{patError}</p>}
-              <button type="submit" className="electron-auth-btn" disabled={patLoading}>
-                {patLoading ? 'Connecting...' : 'Connect to GitHub'}
-              </button>
-            </form>
-            <a 
-              href="https://github.com/settings/tokens/new?scopes=repo&description=Fresnel" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="electron-auth-link"
-            >
-              Create a new token →
-            </a>
+      {/* Auth Modal - shown over blurred app when not authenticated */}
+      {!isAuthenticated && !loading && (
+        <div className="onboarding-overlay">
+          <div className="onboarding-modal">
+            <div className="onboarding-body">
+              {onboardingStep === 0 && (
+                <div className="onboarding-step">
+                  <h2 className="onboarding-title">SETUP</h2>
+                  <p className="onboarding-desc">Create a token</p>
+                  <p className="onboarding-subdesc">Generate a Personal Access Token (classic) with the <code>repo</code> scope from your GitHub settings.</p>
+                  <video className="onboarding-video" src="/generate-token.mp4" autoPlay loop muted playsInline />
+                </div>
+              )}
+              {onboardingStep === 1 && (
+                <div className="onboarding-step">
+                  <h2 className="onboarding-title">SETUP</h2>
+                  <p className="onboarding-desc">Authorize SSO (optional)</p>
+                  <p className="onboarding-subdesc">If your organization uses SAML SSO, click "Configure SSO" next to your token and authorize it for your org.</p>
+                  <img className="onboarding-image" src="/configure-sso.png" alt="Configure SSO" />
+                </div>
+              )}
+              {onboardingStep === 2 && (
+                <div className="onboarding-step">
+                  <h2 className="onboarding-title">SETUP</h2>
+                  <p className="onboarding-desc">Connect to GitHub</p>
+                  <p className="onboarding-subdesc">Paste your token below. We'll validate it automatically, then click Connect to finish.</p>
+                  <form id="pat-form" onSubmit={handlePatSubmit}>
+                    <input
+                      type="password"
+                      className="onboarding-input"
+                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                      value={patInput}
+                      onChange={e => handlePatChange(e.target.value)}
+                      autoFocus
+                    />
+                    {patError && <p className="onboarding-error">{patError}</p>}
+                  </form>
+                  <div className="scope-list">
+                    {tokenScopes.map((scope, i) => (
+                      <div key={scope.key} className={`scope-item ${scope.indent ? 'indent' : ''}`}>
+                        <span
+                          className={`scope-check ${patSuccess ? 'checked' : ''}`}
+                          style={patSuccess ? { animationDelay: `${i * 120}ms` } : undefined}
+                        >
+                          {patSuccess && (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                              <path
+                                d="M2 5.5L4 7.5L8 3"
+                                stroke="#fff"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="check-path"
+                                style={{ animationDelay: `${i * 120}ms` }}
+                              />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="scope-label">{scope.label}</span>
+                        <span className="scope-desc">{scope.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="onboarding-footer">
+              <a 
+                href="https://github.com/settings/tokens/new?scopes=repo&description=Fresnel" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="onboarding-link"
+              >
+                Create a new token →
+              </a>
+              <div className="onboarding-dots">
+                {Array.from({ length: totalSteps }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`onboarding-dot ${i === onboardingStep ? 'active' : ''}`}
+                    onClick={() => setOnboardingStep(i)}
+                  />
+                ))}
+              </div>
+              <div className="onboarding-nav">
+                {onboardingStep > 0 && (
+                  <button className="onboarding-btn back" onClick={() => setOnboardingStep(s => s - 1)}>
+                    ‹ Back
+                  </button>
+                )}
+                {onboardingStep < totalSteps - 1 && (
+                  <button className="onboarding-btn next" onClick={() => setOnboardingStep(s => s + 1)}>
+                    Next ›
+                  </button>
+                )}
+                {onboardingStep === totalSteps - 1 && (
+                  <button
+                    type="submit"
+                    form="pat-form"
+                    className={`onboarding-btn next ${patSuccess ? 'success' : ''}`}
+                    disabled={patLoading}
+                    style={patSuccess ? { animationDelay: `${tokenScopes.length * 120 + 200}ms` } : undefined}
+                  >
+                    {patLoading ? 'Connecting...' : patSuccess ? 'Connected' : 'Connect'}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

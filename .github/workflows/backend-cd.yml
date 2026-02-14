@@ -1,0 +1,56 @@
+name: Backend CD
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  backend-deploy-prod:
+    name: Backend Deploy Prod
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://api.reviewgpt.ca
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::REDACTED_ACCOUNT_ID:role/fresnel-github-deploy
+          aws-region: us-east-1
+
+      - name: Get ECR Repository Name
+        uses: dkershner6/aws-ssm-getparameters-action@v2
+        with:
+          parameterPairs: '/prod/fresnel/api/ecr-repository-name = ECR_REPO_NAME'
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Image
+        working-directory: backend
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPO_NAME:latest -t $ECR_REGISTRY/$ECR_REPO_NAME:${{ github.sha }} .
+          docker push $ECR_REGISTRY/$ECR_REPO_NAME --all-tags
+
+      - name: Get ECS Details
+        uses: dkershner6/aws-ssm-getparameters-action@v2
+        with:
+          parameterPairs: |
+            /prod/fresnel/api/ecs-cluster-name = ECS_CLUSTER_NAME,
+            /prod/fresnel/api/ecs-service-name = ECS_SERVICE_NAME
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER_NAME \
+            --service $ECS_SERVICE_NAME \
+            --force-new-deployment

@@ -85,6 +85,21 @@ export function AuthProvider({ children }) {
     return success
   }
 
+  // Validate a PAT without saving it
+  const validateToken = async (pat) => {
+    try {
+      const response = await fetch('https://api.github.com/user', {
+        headers: {
+          'Authorization': `Bearer ${pat}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
   const logout = () => {
     trackEvent('User Logged Out')
     localStorage.removeItem('github_pat')
@@ -105,6 +120,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     getToken,
+    validateToken,
     isAuthenticated: !!user,
   }
 
