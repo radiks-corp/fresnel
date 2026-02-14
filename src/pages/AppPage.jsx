@@ -181,6 +181,7 @@ function AppPage() {
   const [patError, setPatError] = useState('')
   const [patLoading, setPatLoading] = useState(false)
   const [patSuccess, setPatSuccess] = useState(false)
+  const [onboardingDismissing, setOnboardingDismissing] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
   const totalSteps = 3
 
@@ -243,7 +244,7 @@ function AppPage() {
     }
   }
 
-  // Connect button — actually save the token
+  // Connect button — animate out then save the token
   const handlePatSubmit = async (e) => {
     e.preventDefault()
     if (!patInput.trim()) {
@@ -251,9 +252,13 @@ function AppPage() {
       return
     }
     if (!patSuccess) return
-    setPatLoading(true)
-    await login(patInput.trim())
-    setPatLoading(false)
+    setOnboardingDismissing(true)
+    // Wait for the fade-out animation, then actually log in
+    setTimeout(async () => {
+      setPatLoading(true)
+      await login(patInput.trim())
+      setPatLoading(false)
+    }, 600)
   }
 
   useEffect(() => {
@@ -1200,8 +1205,8 @@ function AppPage() {
       />
 
       {/* Auth Modal - shown over blurred app when not authenticated */}
-      {!isAuthenticated && !loading && (
-        <div className="onboarding-overlay">
+      {(!isAuthenticated || onboardingDismissing) && !loading && (
+        <div className={`onboarding-overlay ${onboardingDismissing ? 'dismissing' : ''}`}>
           <div className="onboarding-modal">
             <div className="onboarding-body">
               {onboardingStep === 0 && (
