@@ -104,12 +104,13 @@ app.get('/api/auth/me', async (req, res) => {
 // Get user's repositories
 app.get('/api/repos', async (req, res) => {
   const authHeader = req.headers.authorization
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : null
   
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ') && !queryToken) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  const token = authHeader.slice(7)
+  const token = queryToken || authHeader.slice(7)
 
   try {
     const reposResponse = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
@@ -134,13 +135,14 @@ app.get('/api/repos', async (req, res) => {
 // Get pull requests for a repository
 app.get('/api/repos/:owner/:repo/pulls', async (req, res) => {
   const authHeader = req.headers.authorization
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : null
   const { owner, repo } = req.params
   
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ') && !queryToken) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  const token = authHeader.slice(7)
+  const token = queryToken || authHeader.slice(7)
 
   try {
     const prsResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=50`, {
