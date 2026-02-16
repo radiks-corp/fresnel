@@ -14,9 +14,15 @@ import { Sentry } from './sentry';
 import { Sentry } from './instrument.js';
 ```
 
-### Electron
+### Electron Main Process
 ```javascript
-const Sentry = require("@sentry/electron");
+const Sentry = require("@sentry/electron/main");
+```
+
+### Electron Renderer Process
+```javascript
+// Use React SDK instead (already configured in src/sentry.js)
+import { Sentry } from './sentry';
 ```
 
 ## Error Tracking
