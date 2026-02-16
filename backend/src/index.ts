@@ -53,6 +53,35 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fresne
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
+/**
+ * Validate and sanitize GitHub owner/repo names to prevent injection attacks
+ * GitHub usernames/orgs and repo names can only contain alphanumeric, hyphens, underscores, and periods
+ * @param value The owner or repo name to validate
+ * @param fieldName The field name for error messages
+ * @returns Sanitized value
+ * @throws Error if validation fails
+ */
+function validateGitHubIdentifier(value: string, fieldName: string): string {
+  if (!value) {
+    throw new Error(`${fieldName} is required`)
+  }
+  
+  // GitHub allows: alphanumeric, hyphens, underscores, periods
+  // Reject anything else to prevent injection attacks
+  const validPattern = /^[a-zA-Z0-9._-]+$/
+  
+  if (!validPattern.test(value)) {
+    throw new Error(`Invalid ${fieldName}: contains disallowed characters`)
+  }
+  
+  // Additional length checks (GitHub limits)
+  if (value.length > 100) {
+    throw new Error(`${fieldName} is too long`)
+  }
+  
+  return value
+}
+
 // Middleware
 app.use(cors({
   origin: FRONTEND_URL,
@@ -256,6 +285,14 @@ app.get('/api/repos/:owner/:repo/pulls', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
+  // Validate route params
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
   const token = authHeader.slice(7)
 
   try {
@@ -287,6 +324,17 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/diff', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
+  // Validate route params
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
   const token = authHeader.slice(7)
 
   try {
@@ -316,6 +364,17 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number', async (req, res) => {
   
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  // Validate route params
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
   }
 
   const token = authHeader.slice(7)
@@ -400,6 +459,17 @@ async function handleChat(req: any, res: any) {
     return res.status(400).json({ error: 'Messages array is required' })
   }
 
+  // Validate route params to prevent injection attacks
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (pull_number && !/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
   const hasPR = !!pull_number
 
   // Debug logging
@@ -478,8 +548,12 @@ async function handleChat(req: any, res: any) {
 
 - \`list_files\`: List all changed files with addition/deletion counts. Pass an empty string for filter to see all files.
 - \`read_file\`: Read the diff content for a specific file. Use page=1 to start, and increment for large files.
-- \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, etc.). Use multiple different searches with various keywords to get a complete picture.
-- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.`
+- \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page). Much faster than search for getting all issues. Supports filtering by state, labels, etc.
+- \`get_issue\`: Get full details for a specific issue by number. No rate limits.
+- \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
+- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.
+
+**Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search.`
 
     // Add PR context (truncated to 300 tokens)
     if (prDetails) {
@@ -524,12 +598,17 @@ async function handleChat(req: any, res: any) {
 
 ## Important Guidelines
 
-1. **Use your tools relentlessly to get a complete view.** You have access to \`search_issues\` to investigate the repository thoroughly. Never make assumptions or give up after one search—keep calling the tool with different queries, keywords, and filters until you have comprehensively investigated the question. For complex questions like finding duplicates, try multiple search approaches to actually compare and analyze the data, not just search for a "duplicate" label.
+1. **Use your tools efficiently.** You have access to \`list_issues\`, \`get_issue\`, and \`search_issues\`. Be strategic:
+   - **ALWAYS start with \`list_issues\`** to get all issues in 1-2 calls (100 per page)
+   - Analyze the results locally to find what you need
+   - Use \`get_issue\` if you need full details for specific issues
+   - Only use \`search_issues\` for complex full-text searches (it has low rate limits!)
+   - For tasks like finding duplicates: Get all issues with \`list_issues\`, then compare titles/descriptions locally
 
 2. **Be thorough and persistent.** When answering questions:
-   - Try multiple relevant search queries with different keywords
-   - Use various filters (is:open, is:closed, author:, label:, etc.) to explore different angles
-   - Actually analyze and compare the results to draw meaningful conclusions
+   - Use \`list_issues\` with appropriate filters (state, labels, etc.)
+   - Analyze all results in memory rather than making repeated API calls
+   - If you need more issues, use pagination (page=2, page=3, etc.)
    - Go above and beyond to provide complete, well-researched answers
 
 3. **Be helpful and conversational.** Provide specific findings with issue numbers, dates, and relevant details.
@@ -538,8 +617,12 @@ async function handleChat(req: any, res: any) {
 
 ## Available Tools
 
-- \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, created:>date, comments:>N, etc.). Use this tool multiple times with different queries to thoroughly investigate questions.
+- \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page, paginated). Much faster and has higher rate limits than search. Supports filtering by state, labels, sort order, etc.
+- \`get_issue\`: Get full details for a specific issue by number. No rate limits. Use this when you need complete details about a specific issue.
+- \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
 - \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.
+
+**Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search that requires the query syntax.
 
 ## Context
 
@@ -617,9 +700,78 @@ Repository: ${owner}/${repo}`
     })
   }
 
+  // list_issues - more efficient for listing all issues (higher rate limits than search)
+  chatTools.list_issues = tool({
+    description: 'List all issues and PRs in the repository. More efficient than search for getting all issues. Use this first to get a complete list, then analyze locally. Supports filtering by state, labels, sort order, etc.',
+    inputSchema: z.object({
+      state: z.enum(['open', 'closed', 'all']).optional().describe('Filter by state. Defaults to "open"'),
+      labels: z.string().optional().describe('Comma-separated list of label names to filter by (e.g., "bug,help wanted")'),
+      sort: z.enum(['created', 'updated', 'comments']).optional().describe('What to sort by. Defaults to "created"'),
+      direction: z.enum(['asc', 'desc']).optional().describe('Sort direction. Defaults to "desc"'),
+      per_page: z.number().optional().describe('Results per page (max 100). Defaults to 100'),
+      page: z.number().optional().describe('Page number. Defaults to 1'),
+    }),
+    execute: async ({ state = 'open', labels, sort = 'created', direction = 'desc', per_page = 100, page = 1 }) => {
+      console.log('[Tool] list_issues called: state=' + state + ', page=' + page)
+      
+      try {
+        const params = new URLSearchParams({
+          state,
+          sort,
+          direction,
+          per_page: String(Math.min(per_page, 100)),
+          page: String(page),
+        })
+        
+        if (labels) {
+          params.append('labels', labels)
+        }
+        
+        const issuesRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/issues?${params}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/vnd.github.v3+json',
+            },
+          }
+        )
+
+        if (!issuesRes.ok) {
+          console.log('[Tool] list_issues failed: status=' + issuesRes.status)
+          return { error: `GitHub API error: ${issuesRes.status}` }
+        }
+
+        const issues = await issuesRes.json() as any[]
+        
+        console.log('[Tool] list_issues succeeded: count=' + issues.length)
+        
+        return {
+          count: issues.length,
+          issues: issues.map((issue: any) => ({
+            number: issue.number,
+            title: issue.title,
+            state: issue.state,
+            body: issue.body ? issue.body.substring(0, 500) + (issue.body.length > 500 ? '...' : '') : null,
+            labels: issue.labels?.map((l: any) => l.name) || [],
+            user: issue.user?.login,
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+            comments: issue.comments,
+            html_url: issue.html_url,
+            is_pull_request: !!issue.pull_request,
+          })),
+        }
+      } catch (error) {
+        console.error('[Tool] list_issues error:', error)
+        return { error: 'Failed to list issues' }
+      }
+    },
+  })
+
   // search_issues is always available (both PR and repo-level chat)
   chatTools.search_issues = tool({
-    description: 'Search for issues and pull requests in the current GitHub repository using GitHub search syntax. Supports advanced filters like is:open, is:closed, label:bug, author:username, assignee:user, mentions:user, type:pr, type:issue, created:>2024-01-01, comments:>5, etc. The repo is automatically scoped, so you don\'t need to add repo: qualifier.',
+    description: 'Search for issues and pull requests using GitHub search syntax. WARNING: Has low rate limits (10 requests/min). Use list_issues instead for getting all issues. Only use search_issues for complex queries that need full-text search.',
     inputSchema: z.object({
       query: z.string().describe('Search query using GitHub search syntax. Examples: "auth bug is:open label:bug", "is:closed author:johndoe", "memory leak type:issue", "label:enhancement is:open"'),
     }),
@@ -665,6 +817,57 @@ Repository: ${owner}/${repo}`
       } catch (error) {
         console.error('[Tool] search_issues error:', error)
         return { error: 'Failed to search issues' }
+      }
+    },
+  })
+
+  // get_issue - fetch a specific issue by number (no rate limit issues)
+  chatTools.get_issue = tool({
+    description: 'Get details for a specific issue or PR by number. Use this when you need full details about a specific issue.',
+    inputSchema: z.object({
+      issue_number: z.number().describe('The issue or PR number'),
+    }),
+    execute: async ({ issue_number }) => {
+      console.log('[Tool] get_issue called: issue_number=' + issue_number)
+      
+      try {
+        const issueRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/vnd.github.v3+json',
+            },
+          }
+        )
+
+        if (!issueRes.ok) {
+          console.log('[Tool] get_issue failed: status=' + issueRes.status)
+          return { error: `Issue #${issue_number} not found or inaccessible` }
+        }
+
+        const issue = await issueRes.json() as any
+        
+        console.log('[Tool] get_issue succeeded: issue_number=' + issue_number)
+        
+        return {
+          number: issue.number,
+          title: issue.title,
+          state: issue.state,
+          body: issue.body,
+          labels: issue.labels?.map((l: any) => l.name) || [],
+          user: issue.user?.login,
+          assignees: issue.assignees?.map((a: any) => a.login) || [],
+          created_at: issue.created_at,
+          updated_at: issue.updated_at,
+          closed_at: issue.closed_at,
+          comments: issue.comments,
+          html_url: issue.html_url,
+          is_pull_request: !!issue.pull_request,
+        }
+      } catch (error) {
+        console.error('[Tool] get_issue error:', error)
+        return { error: 'Failed to fetch issue' }
       }
     },
   })
@@ -730,6 +933,17 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) =
 
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  // Validate route params
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
   }
 
   const token = authHeader.slice(7)
@@ -992,9 +1206,21 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
 // Summarize review findings - lightweight endpoint
 app.post('/api/repos/:owner/:repo/pulls/:pull_number/review/summarize', async (req, res) => {
   const authHeader = req.headers.authorization
+  const { owner, repo, pull_number } = req.params
 
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  // Validate route params
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
   }
 
   const { items } = req.body
@@ -1033,6 +1259,17 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/timeline', async (req, res) 
   
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  // Validate route params
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
   }
 
   const token = authHeader.slice(7)

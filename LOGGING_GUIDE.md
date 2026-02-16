@@ -128,6 +128,20 @@ console.log('[Tool] list_files called: has_filter=' + !!filter)
 console.log('[Tool] list_files succeeded: total_files=' + files.length)
 ```
 
+**list_issues tool:**
+```javascript
+console.log('[Tool] list_issues called: state=' + state + ', page=' + page)
+console.log('[Tool] list_issues succeeded: count=' + issues.length)
+console.log('[Tool] list_issues failed: status=' + issuesRes.status)
+```
+
+**get_issue tool:**
+```javascript
+console.log('[Tool] get_issue called: issue_number=' + issue_number)
+console.log('[Tool] get_issue succeeded: issue_number=' + issue_number)
+console.log('[Tool] get_issue failed: status=' + issueRes.status)
+```
+
 **search_issues tool:**
 ```javascript
 console.log('[Tool] search_issues called')
@@ -149,11 +163,11 @@ console.log('[Tool] search_issues failed: status=' + searchRes.status)
 === Chat Request ===
 Messages count: 1
 Context type: repo-level
-[Tools] Registered tools: read_file, list_files, search_issues, planGitHubOperation
-[Tool] search_issues called
-[Tool] search_issues succeeded: total_count=5
-[Tool] read_file called: page=1
-[Tool] read_file succeeded: total_pages=3
+[Tools] Registered tools: read_file, list_files, list_issues, get_issue, search_issues, planGitHubOperation
+[Tool] list_issues called: state=open, page=1
+[Tool] list_issues succeeded: count=100
+[Tool] get_issue called: issue_number=42
+[Tool] get_issue succeeded: issue_number=42
 ```
 
 ### Operations Buffer Flow (Frontend)
