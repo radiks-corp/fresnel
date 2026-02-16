@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/react'
 
 export function initSentry() {
   Sentry.init({
-    dsn: 'https://15afb3114176ac49260d18d0272c909b@o4510896900276224.ingest.us.sentry.io/4510896902045696',
+    dsn: 'https://79022c5722addfd7e6eb180ddd268469@o4510896900276224.ingest.us.sentry.io/4510897006182400',
     
     // Performance Monitoring
     tracesSampleRate: 1.0, // Adjust this value in production
