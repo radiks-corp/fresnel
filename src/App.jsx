@@ -8,6 +8,7 @@ import { AuthProvider } from './hooks/useAuth.jsx'
 const Landing = lazy(() => import('./pages/Landing'))
 const AppPage = lazy(() => import('./pages/AppPage'))
 const InboxPage = lazy(() => import('./pages/InboxPage'))
+const IssuePage = lazy(() => import('./pages/IssuePage'))
 const AppLayout = lazy(() => import('./layouts/AppLayout'))
 
 const queryClient = new QueryClient({
@@ -43,8 +44,9 @@ function App() {
                 <Route path="/" element={<Navigate to="/app" replace />} />
                 <Route element={<AppLayout />}>
                   <Route path="/app" element={<InboxPage />} />
-                  <Route path="/app/:repoId" element={<AppPage />} />
+                  <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
                   <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
+                  <Route path="/app/:repoId" element={<AppPage />} />
                 </Route>
               </Routes>
             </Suspense>
@@ -67,8 +69,9 @@ function App() {
               <Route path="/" element={<Landing />} />
               <Route element={<AppLayout />}>
                 <Route path="/app" element={<InboxPage />} />
-                <Route path="/app/:repoId" element={<AppPage />} />
+                <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
                 <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
+                <Route path="/app/:repoId" element={<AppPage />} />
               </Route>
             </Routes>
           </Suspense>

@@ -73,13 +73,12 @@ export default function InboxPage() {
   }
 
   const handleIssueClick = (issue) => {
+    if (!selectedRepo) return
     trackEvent('Inbox Issue Clicked', {
-      repo: selectedRepo ? `${selectedRepo.owner.login}/${selectedRepo.name}` : undefined,
+      repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
       issue_number: issue.number,
     })
-    if (issue.html_url) {
-      window.open(issue.html_url, '_blank')
-    }
+    navigate(`/app/${selectedRepo.id}/issues/${issue.number}`)
   }
 
   // Items are already filtered server-side via GitHub Search API
