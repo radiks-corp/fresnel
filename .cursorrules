@@ -77,7 +77,7 @@ Sentry offers a consoleLoggingIntegration that can be used to log specific conso
 import * as Sentry from "@sentry/react";
 
 Sentry.init({
-  dsn: "https://15afb3114176ac49260d18d0272c909b@o4510896900276224.ingest.us.sentry.io/4510896902045696",
+  dsn: "https://79022c5722addfd7e6eb180ddd268469@o4510896900276224.ingest.us.sentry.io/4510897006182400",
   enableLogs: true,
 });
 ```
@@ -86,7 +86,7 @@ Sentry.init({
 
 ```javascript
 Sentry.init({
-  dsn: "https://15afb3114176ac49260d18d0272c909b@o4510896900276224.ingest.us.sentry.io/4510896902045696",
+  dsn: "https://79022c5722addfd7e6eb180ddd268469@o4510896900276224.ingest.us.sentry.io/4510897006182400",
   integrations: [
     // send console.log, console.warn, and console.error calls as logs to Sentry
     Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
@@ -124,7 +124,7 @@ For Express backends:
 const Sentry = require("@sentry/node");
 
 Sentry.init({
-  dsn: "https://b515c61f3738d6ca86c1eaf89e50990e@o4510896900276224.ingest.us.sentry.io/4510896909385728",
+  dsn: "https://5920d77c84eb2c867e7459e869b902af@o4510896900276224.ingest.us.sentry.io/4510897009393664",
   // Setting this option to true will send default PII data to Sentry.
   // For example, automatic IP address collection on events
   sendDefaultPii: true,
