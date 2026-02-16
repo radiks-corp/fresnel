@@ -10,9 +10,9 @@ let initialized = false
  * Called at app startup.
  */
 export function initAnalytics() {
-  if (initialized) return
+  if (initialized || isDev) return
   mixpanel.init(MIXPANEL_TOKEN, {
-    debug: isDev,
+    debug: false,
     track_pageview: false, // we track page views manually
     persistence: 'localStorage',
   })
@@ -25,7 +25,7 @@ export function initAnalytics() {
  * We intentionally do NOT store the PAT.
  */
 export function identifyUser(user) {
-  if (!user) return
+  if (!user || isDev) return
   mixpanel.identify(user.id?.toString())
   mixpanel.people.set({
     $email: user.email || undefined,
@@ -51,6 +51,7 @@ export function identifyUser(user) {
  * Reset analytics on logout.
  */
 export function resetAnalytics() {
+  if (isDev) return
   mixpanel.reset()
 }
 
@@ -58,5 +59,6 @@ export function resetAnalytics() {
  * Track an event with optional properties.
  */
 export function trackEvent(eventName, properties = {}) {
+  if (isDev) return
   mixpanel.track(eventName, properties)
 }

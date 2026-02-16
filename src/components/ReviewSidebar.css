@@ -3,7 +3,7 @@
   min-width: 380px;
   max-width: 800px;
   background: #fff;
-  border-right: 1px solid #d0d7de;
+  border-right: none;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -60,15 +60,35 @@
   color: #1f2328;
 }
 
-/* Tabs - GitHub style */
+/* Header bar — aligns with macOS traffic lights */
 .review-header-bar {
   height: 45px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 12px 0 84px;
   border-bottom: 1px solid #e5e5e5;
   background: #fafafa;
   -webkit-app-region: drag;
+}
+
+.sidebar-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: background 0.15s, color 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-back-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #18181b;
 }
 
 /* Content */
@@ -83,6 +103,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  border-right: 1px solid #e5e5e5;
 }
 
 .review-content * {
@@ -1446,4 +1467,23 @@
 .unified-review-container .start-review-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Subtle fade when sidebar placeholder text changes (repo ↔ PR switch) */
+.unified-review-container .ai-empty-state-title,
+.unified-review-container .ai-empty-state-description,
+.unified-review-container .chat-input {
+  animation: sidebar-text-enter 0.45s ease-out;
+}
+
+@keyframes sidebar-text-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -1,0 +1,393 @@
+/* Inbox Layout — nested inside app-shell, so use 100% not 100vh */
+.inbox-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  color: #1f2328;
+  font-family: 'Barlow', sans-serif;
+}
+
+
+/* Container */
+.inbox-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+}
+
+/* Tabs */
+.inbox-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid #e4e4e7;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.inbox-tabs-bar .tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #71717a;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.inbox-tabs-bar .tab:hover {
+  color: #18181b;
+}
+
+.inbox-tabs-bar .tab.active {
+  color: #18181b;
+  border-bottom-color: #f97316;
+}
+
+.inbox-tabs-bar .tab-count {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: #e4e4e7;
+  border-radius: 100px;
+  font-weight: 600;
+}
+
+.inbox-tabs-bar .tab.active .tab-count {
+  background: #fed7aa;
+  color: #c2410c;
+}
+
+/* Toolbar */
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid #e4e4e7;
+  flex-shrink: 0;
+}
+
+.inbox-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 400px;
+}
+
+.inbox-search-icon {
+  color: #a1a1aa;
+  flex-shrink: 0;
+}
+
+.inbox-search-input {
+  flex: 1;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1f2328;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.inbox-search-input:focus {
+  border-color: #a1a1aa;
+}
+
+.inbox-search-input::placeholder {
+  color: #a1a1aa;
+}
+
+.inbox-result-count {
+  font-size: 12px;
+  color: #656d76;
+  white-space: nowrap;
+}
+
+/* List */
+.inbox-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.inbox-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #656d76;
+  font-size: 14px;
+}
+
+/* Repo group */
+.inbox-group {
+  border-bottom: 1px solid #e4e4e7;
+}
+
+.inbox-group:last-child {
+  border-bottom: none;
+}
+
+.inbox-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #e4e4e7;
+}
+
+.inbox-group-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.inbox-group-count {
+  font-size: 11px;
+  color: #656d76;
+  background: #e4e4e7;
+  padding: 1px 6px;
+  border-radius: 100px;
+  font-weight: 600;
+}
+
+/* Row */
+.inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.inbox-row:last-child {
+  border-bottom: none;
+}
+
+.inbox-row:hover {
+  background: #f6f8fa;
+}
+
+.inbox-row-icon {
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.inbox-icon.open {
+  color: #1a7f37;
+}
+
+.inbox-icon.draft {
+  color: #656d76;
+}
+
+.inbox-icon.issue-open {
+  color: #1a7f37;
+}
+
+.inbox-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.inbox-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.inbox-row-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2328;
+  line-height: 1.4;
+}
+
+.inbox-row-title:hover {
+  color: #0969da;
+}
+
+.inbox-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.inbox-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #656d76;
+  margin-top: 2px;
+}
+
+.inbox-row-number {
+  color: #656d76;
+}
+
+.inbox-row-sep {
+  color: #d0d7de;
+}
+
+.inbox-row-comments {
+  color: #656d76;
+}
+
+/* Right side of row */
+.inbox-row-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.inbox-row-assignees {
+  display: flex;
+}
+
+.inbox-row-assignee {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  margin-left: -6px;
+}
+
+.inbox-row-assignee:first-child {
+  margin-left: 0;
+}
+
+/* ─── Stacked PR dropdown ─── */
+.inbox-stack {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.inbox-stack:last-child {
+  border-bottom: none;
+}
+
+.inbox-stack>.inbox-row {
+  border-bottom: none;
+}
+
+/* Root row — toggle sits in the left padding, out of flex flow */
+.inbox-stack-root {
+  position: relative;
+  padding-left: 20px;
+}
+
+.inbox-stack-toggle {
+  position: absolute;
+  left: 3px;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  color: #656d76;
+  z-index: 1;
+  transition: background 0.12s, color 0.12s;
+}
+
+.inbox-stack-toggle:hover {
+  background: #e4e4e7;
+  color: #1f2328;
+}
+
+.inbox-stack-chevron {
+  transition: transform 0.2s ease;
+}
+
+.inbox-stack-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.inbox-stack-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  background: #ddf4ff;
+  color: #0969da;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* ─── Stack children (expanded) ─── */
+.inbox-stack-children {
+  background: #fafbfc;
+}
+
+/* Child row — connector sits in left padding, out of flex flow */
+.inbox-stack-child {
+  position: relative;
+  padding-left: 20px !important;
+}
+
+.inbox-stack-connector {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  pointer-events: none;
+}
+
+.inbox-stack-line {
+  position: absolute;
+  left: 9px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #d0d7de;
+}
+
+.inbox-stack-line.last {
+  bottom: 50%;
+}
+
+.inbox-stack-dot {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d0d7de;
+  z-index: 1;
+}

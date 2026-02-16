@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from '@phosphor-icons/react'
 import UnifiedReview from './UnifiedReview'
 import './ReviewSidebar.css'
 
@@ -6,7 +8,8 @@ const MIN_WIDTH = 380
 const MAX_WIDTH = 800
 const DEFAULT_WIDTH = 480
 
-function ReviewSidebar({ owner, repo, prNumber, chatKey, userAvatar, userName, onJumpToLine, onApplyComment, viewedCount, totalFiles, pendingComments }) {
+function ReviewSidebar({ owner, repo, repoId, prNumber, chatKey, userAvatar, userName }) {
+  const navigate = useNavigate()
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
 
@@ -43,7 +46,13 @@ function ReviewSidebar({ owner, repo, prNumber, chatKey, userAvatar, userName, o
   return (
     <aside className="review-sidebar" style={{ width }}>
       <div className="review-header-bar">
-        {/* Empty draggable header bar */}
+        <button
+          className="sidebar-back-btn"
+          onClick={() => navigate('/app')}
+          title="Back to inbox"
+        >
+          <ArrowLeft size={14} weight="bold" />
+        </button>
       </div>
 
       <div className="review-content">
@@ -51,14 +60,10 @@ function ReviewSidebar({ owner, repo, prNumber, chatKey, userAvatar, userName, o
           key={chatKey}
           owner={owner} 
           repo={repo} 
+          repoId={repoId}
           prNumber={prNumber}
           userAvatar={userAvatar}
           userName={userName}
-          onJumpToLine={onJumpToLine}
-          onApplyComment={onApplyComment}
-          viewedCount={viewedCount}
-          totalFiles={totalFiles}
-          pendingComments={pendingComments}
         />
       </div>
 

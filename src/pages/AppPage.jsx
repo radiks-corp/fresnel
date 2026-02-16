@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter'
 import js from 'react-syntax-highlighter/dist/esm/languages/hljs/javascript'
 import ts from 'react-syntax-highlighter/dist/esm/languages/hljs/typescript'
@@ -12,13 +12,17 @@ import go from 'react-syntax-highlighter/dist/esm/languages/hljs/go'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkEmoji from 'remark-emoji'
-import { CaretDown, CaretRight, Check, MagnifyingGlass, File, Folder, FolderOpen, Funnel, SidebarSimple } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, Check, MagnifyingGlass, File, Folder, FolderOpen, Funnel } from '@phosphor-icons/react'
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
-import ReviewSidebar from '../components/ReviewSidebar'
-import FeedSidebar from '../components/FeedSidebar'
+import { usePullRequests } from '../hooks/usePullRequests'
+import { usePRDiff } from '../hooks/usePRDiff'
+import { usePRDetails } from '../hooks/usePRDetails'
+import { usePRTimeline } from '../hooks/usePRTimeline'
+import { useSidebarContext } from '../contexts/SidebarContext'
 import InlineCommentEditor from '../components/InlineCommentEditor'
+import OnboardingModal from '../components/OnboardingModal'
 import '../app.css'
 
 SyntaxHighlighter.registerLanguage('javascript', js)
@@ -147,21 +151,8 @@ function parseDiff(diffText) {
 }
 
 function AppPage() {
-  const [repos, setRepos] = useState([])
-  const [selectedRepo, setSelectedRepo] = useState(null)
-  const [loadingRepos, setLoadingRepos] = useState(true)
-  
-  const [pullRequests, setPullRequests] = useState([])
   const [selectedPR, setSelectedPR] = useState(null)
-  const [loadingPRs, setLoadingPRs] = useState(false)
-  
-  const [diff, setDiff] = useState('')
-  const [loadingDiff, setLoadingDiff] = useState(false)
-  
-  const [prDetails, setPrDetails] = useState(null)
-  const [timeline, setTimeline] = useState([])
-  const [loadingTimeline, setLoadingTimeline] = useState(false)
-  
+
   const [activeTab, setActiveTab] = useState('conversation')
   const [viewedFiles, setViewedFiles] = useState({})
   const [collapsedFiles, setCollapsedFiles] = useState({})
@@ -174,262 +165,55 @@ function AppPage() {
   const [collapsedFolders, setCollapsedFolders] = useState({})
   const [selectedExtensions, setSelectedExtensions] = useState({})
   const [hideViewedFiles, setHideViewedFiles] = useState(false)
-  const [feedSidebarOpen, setFeedSidebarOpen] = useState(true)
   
-  // Auth modal state
-  const [patInput, setPatInput] = useState('')
-  const [patError, setPatError] = useState('')
-  const [patLoading, setPatLoading] = useState(false)
-  const [patSuccess, setPatSuccess] = useState(false)
-  const [onboardingDismissing, setOnboardingDismissing] = useState(false)
-  const [onboardingStep, setOnboardingStep] = useState(0)
-  const totalSteps = 3
-
-  const tokenScopes = [
-    { key: 'repo', label: 'repo', desc: 'Full control of private repositories' },
-    { key: 'repo:status', label: 'repo:status', desc: 'Access commit status', indent: true },
-    { key: 'repo_deployment', label: 'repo_deployment', desc: 'Access deployment status', indent: true },
-    { key: 'public_repo', label: 'public_repo', desc: 'Access public repositories', indent: true },
-    { key: 'repo:invite', label: 'repo:invite', desc: 'Access repository invitations', indent: true },
-    { key: 'security_events', label: 'security_events', desc: 'Read and write security events', indent: true },
-  ]
-  
-  const { user, isAuthenticated, loading, logout, login, validateToken } = useAuth()
+  const { user, isAuthenticated, loading, logout } = useAuth()
   const navigate = useNavigate()
-  const { repoId: urlRepoId, prNumber: urlPrNumber } = useParams()
+  const location = useLocation()
+  const { prNumber: urlPrNumber } = useParams()
+  const { setSidebarData, selectedRepo } = useSidebarContext()
   
-  // Check if running in Electron
-  const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron
-
   // Track app page view on mount
   useEffect(() => {
     trackEvent('Page Viewed', { page: 'app' })
   }, [])
 
-  // Update URL when repo/PR selection changes
-  const updateUrl = useCallback((repo, pr) => {
-    if (repo && pr) {
-      navigate(`/app/${repo.id}/${pr.number}`, { replace: true })
-    } else if (repo) {
-      navigate(`/app/${repo.id}`, { replace: true })
-    } else {
-      navigate('/app', { replace: true })
-    }
-  }, [navigate])
+  // --- Data fetching via react-query hooks ---
+  const owner = selectedRepo?.owner?.login
+  const repoName = selectedRepo?.name
+  const prNumber = selectedPR?.number
 
-  // Get the stored PAT
-  const getToken = () => localStorage.getItem('github_pat')
+  const { data: pullRequests = [], isLoading: loadingPRs } = usePullRequests(owner, repoName)
+  const { data: diff = '', isLoading: loadingDiff } = usePRDiff(owner, repoName, prNumber)
+  const { data: prDetails = null, isLoading: loadingTimeline } = usePRDetails(owner, repoName, prNumber)
+  const { data: timeline = [] } = usePRTimeline(owner, repoName, prNumber)
+
+  // Reset PR when repo changes
+  useEffect(() => {
+    setSelectedPR(null)
+  }, [selectedRepo?.id])
+
+  // Select PR from URL params once pulls load
+  useEffect(() => {
+    if (pullRequests.length === 0 || !selectedRepo) return
+    if (urlPrNumber) {
+      const prFromUrl = pullRequests.find(pr => pr.number.toString() === urlPrNumber)
+      if (prFromUrl) {
+        setSelectedPR(prFromUrl)
+        return
+      }
+    }
+    setSelectedPR(pullRequests[0])
+    navigate(`/app/${selectedRepo.id}/${pullRequests[0].number}`, { replace: true })
+  }, [pullRequests, urlPrNumber, selectedRepo, navigate])
+
+  // Reset viewed files when diff changes
+  useEffect(() => {
+    setViewedFiles({})
+  }, [diff])
 
   const parsedFiles = useMemo(() => parseDiff(diff), [diff])
   const viewedCount = Object.values(viewedFiles).filter(Boolean).length
 
-  // Auto-validate token on paste or input change
-  const handlePatChange = async (value) => {
-    setPatInput(value)
-    setPatError('')
-    setPatSuccess(false)
-
-    const trimmed = value.trim()
-    if (!trimmed || trimmed.length < 10) return
-
-    setPatLoading(true)
-    const valid = await validateToken(trimmed)
-    setPatLoading(false)
-
-    if (valid) {
-      setPatSuccess(true)
-    } else {
-      setPatError('Invalid token. Make sure it has repo access.')
-      trackEvent('PAT Submission Failed', { source: 'onboarding' })
-    }
-  }
-
-  // Connect button — animate out then save the token
-  const handlePatSubmit = async (e) => {
-    e.preventDefault()
-    if (!patInput.trim()) {
-      setPatError('Please enter a token')
-      return
-    }
-    if (!patSuccess) return
-    setOnboardingDismissing(true)
-    // Wait for the fade-out animation, then actually log in
-    setTimeout(async () => {
-      setPatLoading(true)
-      await login(patInput.trim())
-      setPatLoading(false)
-    }, 600)
-  }
-
-  useEffect(() => {
-    async function fetchRepos() {
-      const token = getToken()
-      console.log('fetchRepos called, token exists:', !!token, 'isAuthenticated:', isAuthenticated)
-      if (!token) {
-        console.log('No token found, returning early')
-        setLoadingRepos(false)
-        return
-      }
-
-      try {
-        console.log('Fetching repos from:', `${import.meta.env.VITE_API_URL}/api/repos`)
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/repos`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        })
-        const data = await response.json()
-        console.log('Repos fetched:', data.length, 'data:', JSON.stringify(data).substring(0, 200))
-        
-        if (data.error) {
-          console.error('API error:', data.error)
-          // Token might be invalid, try to refresh
-          logout()
-          navigate('/')
-          return
-        }
-        
-        setRepos(data)
-        
-        // Select repo from URL or default to first
-        if (data.length > 0 && !selectedRepo) {
-          if (urlRepoId) {
-            const repoFromUrl = data.find(r => r.id.toString() === urlRepoId)
-            if (repoFromUrl) {
-              setSelectedRepo(repoFromUrl)
-            } else {
-              // URL repo not found, select first and update URL
-              setSelectedRepo(data[0])
-              updateUrl(data[0], null)
-            }
-          } else {
-            setSelectedRepo(data[0])
-            updateUrl(data[0], null)
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch repos:', error)
-      } finally {
-        setLoadingRepos(false)
-      }
-    }
-
-    console.log('useEffect for fetchRepos, isAuthenticated:', isAuthenticated)
-    if (isAuthenticated) {
-      fetchRepos()
-    }
-  }, [isAuthenticated])
-
-  useEffect(() => {
-    async function fetchPRs() {
-      if (!selectedRepo) return
-      
-      const token = getToken()
-      if (!token) return
-
-      setLoadingPRs(true)
-      setPullRequests([])
-      setSelectedPR(null)
-      setDiff('')
-      setViewedFiles({})
-
-      try {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/repos/${selectedRepo.owner.login}/${selectedRepo.name}/pulls`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        )
-        const data = await response.json()
-        setPullRequests(data)
-        
-        // Select PR from URL or default to first
-        if (data.length > 0) {
-          if (urlPrNumber && selectedRepo.id.toString() === urlRepoId) {
-            const prFromUrl = data.find(pr => pr.number.toString() === urlPrNumber)
-            if (prFromUrl) {
-              setSelectedPR(prFromUrl)
-            } else {
-              // URL PR not found, select first and update URL
-              setSelectedPR(data[0])
-              updateUrl(selectedRepo, data[0])
-            }
-          } else {
-            setSelectedPR(data[0])
-            updateUrl(selectedRepo, data[0])
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch PRs:', error)
-      } finally {
-        setLoadingPRs(false)
-      }
-    }
-
-    fetchPRs()
-  }, [selectedRepo, urlRepoId, urlPrNumber, updateUrl])
-
-  useEffect(() => {
-    async function fetchDiff() {
-      if (!selectedRepo || !selectedPR) return
-      
-      const token = getToken()
-      if (!token) return
-
-      setLoadingDiff(true)
-      setViewedFiles({})
-
-      try {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/repos/${selectedRepo.owner.login}/${selectedRepo.name}/pulls/${selectedPR.number}/diff`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        )
-        const data = await response.text()
-        setDiff(data)
-      } catch (error) {
-        console.error('Failed to fetch diff:', error)
-      } finally {
-        setLoadingDiff(false)
-      }
-    }
-
-    fetchDiff()
-  }, [selectedPR, selectedRepo])
-
-  // Fetch PR details and timeline when PR is selected
-  useEffect(() => {
-    async function fetchPRDetails() {
-      if (!selectedRepo || !selectedPR) return
-      
-      const token = getToken()
-      if (!token) return
-
-      setLoadingTimeline(true)
-
-      try {
-        const [detailsRes, timelineRes] = await Promise.all([
-          fetch(
-            `${import.meta.env.VITE_API_URL}/api/repos/${selectedRepo.owner.login}/${selectedRepo.name}/pulls/${selectedPR.number}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-          ),
-          fetch(
-            `${import.meta.env.VITE_API_URL}/api/repos/${selectedRepo.owner.login}/${selectedRepo.name}/pulls/${selectedPR.number}/timeline`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-          ),
-        ])
-        
-        const [details, timelineData] = await Promise.all([
-          detailsRes.json(),
-          timelineRes.json(),
-        ])
-        
-        setPrDetails(details)
-        setTimeline(Array.isArray(timelineData) ? timelineData : [])
-      } catch (error) {
-        console.error('Failed to fetch PR details:', error)
-      } finally {
-        setLoadingTimeline(false)
-      }
-    }
-
-    fetchPRDetails()
-  }, [selectedPR, selectedRepo])
 
   const toggleViewed = (fileName) => {
     const newViewedState = !viewedFiles[fileName]
@@ -484,6 +268,38 @@ function AppPage() {
     trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
   }, [])
 
+  // Provide sidebar data via context so the layout-level sidebar can read it
+  useEffect(() => {
+    setSidebarData({
+      onApplyComment: handleApplyComment,
+      viewedCount,
+      totalFiles: parsedFiles.length,
+      pendingComments,
+    })
+  }, [setSidebarData, handleApplyComment, viewedCount, parsedFiles.length, pendingComments])
+
+  // Clear sidebar data when leaving this page
+  useEffect(() => {
+    return () => {
+      setSidebarData({
+        onApplyComment: null,
+        viewedCount: 0,
+        totalFiles: 0,
+        pendingComments: [],
+      })
+    }
+  }, [setSidebarData])
+
+  // Handle jump-to from navigation state (sidebar uses navigate() for jump-to clicks)
+  useEffect(() => {
+    const jumpTo = location.state?.jumpTo
+    if (jumpTo && !loadingDiff && parsedFiles.length > 0) {
+      handleJumpToLine(jumpTo.file, jumpTo.line)
+      // Clear the state so it doesn't re-trigger
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, loadingDiff, parsedFiles, handleJumpToLine, navigate, location.pathname])
+
   const handleEditComment = useCallback((commentId, newBody) => {
     setPendingComments(prev => prev.map(c => 
       c.id === commentId ? { ...c, body: newBody } : c
@@ -510,37 +326,6 @@ function AppPage() {
     setCommentEditorOpen(null)
     trackEvent('Inline Comment Submitted', { file: fileName, line: lineNum, type })
   }, [])
-
-  // Handle selecting a PR from the feed — just navigate and let existing effects handle the rest
-  const handleSelectPR = useCallback(async ({ owner, repo: repoName, number, title }) => {
-    trackEvent('Feed PR Clicked', { repo: `${owner}/${repoName}`, pr_number: number, pr_title: title })
-    const token = getToken()
-    if (!token) return
-
-    // Find the repo in our list or fetch it
-    let targetRepo = repos.find(r => r.owner.login === owner && r.name === repoName)
-    
-    if (!targetRepo) {
-      try {
-        const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        })
-        if (response.ok) {
-          targetRepo = await response.json()
-          setRepos(prev => [...prev, targetRepo])
-        }
-      } catch (error) {
-        console.error('Failed to fetch repo:', error)
-        return
-      }
-    }
-
-    if (targetRepo) {
-      setSelectedRepo(targetRepo)
-      navigate(`/app/${targetRepo.id}/${number}`, { replace: true })
-      setFeedSidebarOpen(false)
-    }
-  }, [repos, getToken, navigate])
 
   const toggleFolder = (folderPath) => {
     setCollapsedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))
@@ -706,111 +491,56 @@ function AppPage() {
   }
 
   return (
-    <div className={`app-layout-v2 ${feedSidebarOpen ? 'feed-open' : ''}`}>
-      <FeedSidebar isOpen={feedSidebarOpen} onSelectPR={handleSelectPR} />
-      <header className="app-header">
-        <div className="header-left">
-          <Popover className="header-selector">
-            <PopoverButton className="header-selector-trigger">
-              <Folder size={16} weight="fill" className="header-selector-icon" />
-              {loadingRepos ? (
-                <span className="header-selector-text">Loading...</span>
-              ) : selectedRepo ? (
-                <span className="header-selector-text">{selectedRepo.name}</span>
-              ) : (
-                <span className="header-selector-text">No repos</span>
-              )}
-              <CaretDown size={12} className="header-selector-caret" />
-            </PopoverButton>
-            
+    <div className="app-page">
+      <div className="tabs-bar">
+        <Popover className="header-selector">
+          <PopoverButton className="header-selector-trigger">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="header-selector-icon">
+              <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
+            </svg>
+            {loadingPRs ? (
+              <span className="header-selector-text">Loading...</span>
+            ) : selectedPR ? (
+              <span className="header-selector-text">{selectedPR.head?.ref || `#${selectedPR.number}`}</span>
+            ) : (
+              <span className="header-selector-text">No PRs</span>
+            )}
+            <CaretDown size={12} className="header-selector-caret" />
+          </PopoverButton>
+          
+          {pullRequests.length > 0 && (
             <PopoverPanel className="header-dropdown">
               {({ close }) => (
                 <>
-                  {repos.map((repo) => (
+                  {pullRequests.map((pr) => (
                     <div
-                      key={repo.id}
-                      className={`header-dropdown-item ${selectedRepo?.id === repo.id ? 'active' : ''}`}
+                      key={pr.id}
+                      className={`header-dropdown-item ${selectedPR?.id === pr.id ? 'active' : ''}`}
                       onClick={() => {
-                        setSelectedRepo(repo)
-                        navigate(`/app/${repo.id}`, { replace: true })
-                        trackEvent('Repository Selected', {
-                          repo_name: `${repo.owner.login}/${repo.name}`,
-                          repo_id: repo.id,
-                          is_private: repo.private,
+                        setSelectedPR(pr)
+                        if (selectedRepo) {
+                          navigate(`/app/${selectedRepo.id}/${pr.number}`, { replace: true })
+                        }
+                        trackEvent('PR Selected', {
+                          pr_number: pr.number,
+                          pr_title: pr.title,
+                          repo_name: selectedRepo ? `${selectedRepo.owner.login}/${selectedRepo.name}` : undefined,
                         })
                         close()
                       }}
                     >
-                      <Folder size={14} className="header-dropdown-icon" />
-                      <span className="header-dropdown-text">{repo.owner.login}/{repo.name}</span>
-                      {repo.private && <span className="header-dropdown-badge">Private</span>}
+                      <span className="header-dropdown-number">#{pr.number}</span>
+                      <span className="header-dropdown-text">{pr.title}</span>
                     </div>
                   ))}
                 </>
               )}
             </PopoverPanel>
-          </Popover>
+          )}
+        </Popover>
 
-          <Popover className="header-selector">
-            <PopoverButton className="header-selector-trigger">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="header-selector-icon">
-                <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
-              </svg>
-              {loadingPRs ? (
-                <span className="header-selector-text">Loading...</span>
-              ) : selectedPR ? (
-                <span className="header-selector-text">{selectedPR.head?.ref || `#${selectedPR.number}`}</span>
-              ) : (
-                <span className="header-selector-text">No PRs</span>
-              )}
-              <CaretDown size={12} className="header-selector-caret" />
-            </PopoverButton>
-            
-            {pullRequests.length > 0 && (
-              <PopoverPanel className="header-dropdown">
-                {({ close }) => (
-                  <>
-                    {pullRequests.map((pr) => (
-                      <div
-                        key={pr.id}
-                        className={`header-dropdown-item ${selectedPR?.id === pr.id ? 'active' : ''}`}
-                        onClick={() => {
-                          setSelectedPR(pr)
-                          updateUrl(selectedRepo, pr)
-                          trackEvent('PR Selected', {
-                            pr_number: pr.number,
-                            pr_title: pr.title,
-                            repo_name: selectedRepo ? `${selectedRepo.owner.login}/${selectedRepo.name}` : undefined,
-                          })
-                          close()
-                        }}
-                      >
-                        <span className="header-dropdown-number">#{pr.number}</span>
-                        <span className="header-dropdown-text">{pr.title}</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </PopoverPanel>
-            )}
-          </Popover>
-        </div>
+        <div className="tabs-bar-divider" />
 
-        <div className="header-right">
-          <button 
-            className="feed-toggle-btn"
-            onClick={() => { const next = !feedSidebarOpen; setFeedSidebarOpen(next); trackEvent('Feed Sidebar Toggled', { is_open: next }) }}
-            title={feedSidebarOpen ? 'Close feed' : 'Open feed'}
-          >
-            <SidebarSimple 
-              size={18} 
-              weight={feedSidebarOpen ? 'fill' : 'regular'} 
-            />
-          </button>
-        </div>
-      </header>
-
-      <div className="tabs-bar">
         <button 
           className={`tab ${activeTab === 'conversation' ? 'active' : ''}`}
           onClick={() => { setActiveTab('conversation'); trackEvent('Tab Changed', { tab: 'conversation' }) }}
@@ -1190,131 +920,7 @@ function AppPage() {
         </main>
       </div>
 
-      <ReviewSidebar 
-        owner={selectedRepo?.owner?.login}
-        repo={selectedRepo?.name}
-        prNumber={selectedPR?.number}
-        chatKey={`${selectedRepo?.id}-${selectedPR?.number}`}
-        userAvatar={user?.avatar_url}
-        userName={user?.name || user?.login}
-        onJumpToLine={handleJumpToLine}
-        onApplyComment={handleApplyComment}
-        viewedCount={viewedCount}
-        totalFiles={parsedFiles.length}
-        pendingComments={pendingComments}
-      />
-
-      {/* Auth Modal - shown over blurred app when not authenticated */}
-      {(!isAuthenticated || onboardingDismissing) && !loading && (
-        <div className={`onboarding-overlay ${onboardingDismissing ? 'dismissing' : ''}`}>
-          <div className="onboarding-modal">
-            <div className="onboarding-body">
-              {onboardingStep === 0 && (
-                <div className="onboarding-step">
-                  <h2 className="onboarding-title">SETUP</h2>
-                  <p className="onboarding-desc">Create a token</p>
-                  <p className="onboarding-subdesc">Generate a Personal Access Token (classic) with the <code>repo</code> scope from your GitHub settings.</p>
-                  <video className="onboarding-video" src="/generate-token.mp4" autoPlay loop muted playsInline />
-                </div>
-              )}
-              {onboardingStep === 1 && (
-                <div className="onboarding-step">
-                  <h2 className="onboarding-title">SETUP</h2>
-                  <p className="onboarding-desc">Authorize SSO (optional)</p>
-                  <p className="onboarding-subdesc">If your organization uses SAML SSO, click "Configure SSO" next to your token and authorize it for your org.</p>
-                  <img className="onboarding-image" src="/configure-sso.png" alt="Configure SSO" />
-                </div>
-              )}
-              {onboardingStep === 2 && (
-                <div className="onboarding-step">
-                  <h2 className="onboarding-title">SETUP</h2>
-                  <p className="onboarding-desc">Connect to GitHub</p>
-                  <p className="onboarding-subdesc">Paste your token below. We'll validate it automatically, then click Connect to finish.</p>
-                  <form id="pat-form" onSubmit={handlePatSubmit}>
-                    <input
-                      type="password"
-                      className="onboarding-input"
-                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                      value={patInput}
-                      onChange={e => handlePatChange(e.target.value)}
-                      autoFocus
-                    />
-                    {patError && <p className="onboarding-error">{patError}</p>}
-                  </form>
-                  <div className="scope-list">
-                    {tokenScopes.map((scope, i) => (
-                      <div key={scope.key} className={`scope-item ${scope.indent ? 'indent' : ''}`}>
-                        <span
-                          className={`scope-check ${patSuccess ? 'checked' : ''}`}
-                          style={patSuccess ? { animationDelay: `${i * 120}ms` } : undefined}
-                        >
-                          {patSuccess && (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                              <path
-                                d="M2 5.5L4 7.5L8 3"
-                                stroke="#fff"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="check-path"
-                                style={{ animationDelay: `${i * 120}ms` }}
-                              />
-                            </svg>
-                          )}
-                        </span>
-                        <span className="scope-label">{scope.label}</span>
-                        <span className="scope-desc">{scope.desc}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="onboarding-footer">
-              <a 
-                href="https://github.com/settings/tokens/new?scopes=repo&description=Fresnel" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="onboarding-link"
-              >
-                Create a new token →
-              </a>
-              <div className="onboarding-dots">
-                {Array.from({ length: totalSteps }).map((_, i) => (
-                  <span
-                    key={i}
-                    className={`onboarding-dot ${i === onboardingStep ? 'active' : ''}`}
-                    onClick={() => setOnboardingStep(i)}
-                  />
-                ))}
-              </div>
-              <div className="onboarding-nav">
-                {onboardingStep > 0 && (
-                  <button className="onboarding-btn back" onClick={() => setOnboardingStep(s => s - 1)}>
-                    ‹ Back
-                  </button>
-                )}
-                {onboardingStep < totalSteps - 1 && (
-                  <button className="onboarding-btn next" onClick={() => setOnboardingStep(s => s + 1)}>
-                    Next ›
-                  </button>
-                )}
-                {onboardingStep === totalSteps - 1 && (
-                  <button
-                    type="submit"
-                    form="pat-form"
-                    className={`onboarding-btn next ${patSuccess ? 'success' : ''}`}
-                    disabled={patLoading}
-                    style={patSuccess ? { animationDelay: `${tokenScopes.length * 120 + 200}ms` } : undefined}
-                  >
-                    {patLoading ? 'Connecting...' : patSuccess ? 'Connected' : 'Connect'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <OnboardingModal />
     </div>
   )
 }
