@@ -6,17 +6,19 @@ on:
   workflow_dispatch:
 
 jobs:
+  backend:
+    name: Backend
+    uses: ./.github/workflows/backend-cd.yml
+    secrets: inherit
+
   homepage:
     name: Homepage
+    needs: backend
     uses: ./.github/workflows/homepage-cd.yml
     secrets: inherit
 
   app:
     name: App
+    needs: backend
     uses: ./.github/workflows/app-cd.yml
-    secrets: inherit
-
-  backend:
-    name: Backend
-    uses: ./.github/workflows/backend-cd.yml
     secrets: inherit
