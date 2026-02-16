@@ -136,10 +136,11 @@ Sentry.setupExpressErrorHandler(app);
 
 ## Electron Configuration
 
-For Electron apps, initialize Sentry at the very top of the main process file:
+For Electron apps, initialize Sentry with different imports for main and renderer processes:
 
+### Main Process (main.cjs)
 ```javascript
-const Sentry = require("@sentry/electron");
+const Sentry = require("@sentry/electron/main");
 
 Sentry.init({
   dsn: "https://1313505948be789d210f934165505f77@o4510896900276224.ingest.us.sentry.io/4510896915939328",
@@ -147,3 +148,14 @@ Sentry.init({
   tracesSampleRate: 1.0, // Adjust this value in production
 });
 ```
+
+### Renderer Process (if needed separately)
+```javascript
+import * as Sentry from "@sentry/electron/renderer";
+
+Sentry.init({
+  dsn: "https://1313505948be789d210f934165505f77@o4510896900276224.ingest.us.sentry.io/4510896915939328",
+});
+```
+
+Note: If you're using React in the renderer, the `@sentry/react` SDK is preferred.
