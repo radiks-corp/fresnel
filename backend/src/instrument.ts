@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 Sentry.init({
-  dsn: process.env.SENTRY_DSN || 'https://b515c61f3738d6ca86c1eaf89e50990e@o4510896900276224.ingest.us.sentry.io/4510896909385728',
+  dsn: process.env.SENTRY_DSN || 'https://5920d77c84eb2c867e7459e869b902af@o4510896900276224.ingest.us.sentry.io/4510897009393664',
   
   // Performance Monitoring
   tracesSampleRate: 1.0, // Adjust this value in production
