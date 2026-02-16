@@ -31,6 +31,8 @@ jobs:
         run: npm run build
         env:
           VITE_API_URL: https://api.reviewgpt.ca
+          NODE_ENV: production
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       - name: Get Bucket Name
         uses: dkershner6/aws-ssm-getparameters-action@v2

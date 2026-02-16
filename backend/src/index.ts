@@ -1,3 +1,7 @@
+// IMPORTANT: Import instrument.ts at the very top
+import './instrument.js'
+import { Sentry } from './instrument.js'
+
 import express from 'express'
 import cors from 'cors'
 import mongoose from 'mongoose'
@@ -47,8 +51,6 @@ const app = express()
 const PORT = process.env.PORT || 3001
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fresnel'
 
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 // Middleware
@@ -403,7 +405,7 @@ async function handleChat(req: any, res: any) {
   // Debug logging
   console.log('=== Chat Request ===')
   console.log('Messages count:', messages?.length)
-  console.log('Context:', hasPR ? `${owner}/${repo}#${pull_number}` : `${owner}/${repo} (repo-level)`)
+  console.log('Context type:', hasPR ? 'PR-level' : 'repo-level')
 
   // Fetch PR details and diff from GitHub (only when a PR is specified)
   let prDetails: any = null
@@ -442,7 +444,7 @@ async function handleChat(req: any, res: any) {
       console.error('Error fetching PR data:', error)
     }
 
-    console.log('PR title:', prDetails?.title || 'N/A')
+    console.log('PR data loaded:', !!prDetails)
     console.log('Diff length:', diff?.length || 0)
   }
 
@@ -476,7 +478,8 @@ async function handleChat(req: any, res: any) {
 
 - \`list_files\`: List all changed files with addition/deletion counts. Pass an empty string for filter to see all files.
 - \`read_file\`: Read the diff content for a specific file. Use page=1 to start, and increment for large files.
-- \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, etc.). Use multiple different searches with various keywords to get a complete picture.`
+- \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, etc.). Use multiple different searches with various keywords to get a complete picture.
+- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.`
 
     // Add PR context (truncated to 300 tokens)
     if (prDetails) {
@@ -536,6 +539,7 @@ async function handleChat(req: any, res: any) {
 ## Available Tools
 
 - \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, created:>date, comments:>N, etc.). Use this tool multiple times with different queries to thoroughly investigate questions.
+- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.
 
 ## Context
 
@@ -553,9 +557,12 @@ Repository: ${owner}/${repo}`
         page: z.number().describe('Page number (1-indexed). Each page contains ~100 lines.'),
       }),
       execute: async ({ filename, page }) => {
+        console.log('[Tool] read_file called: page=' + page)
+        
         const file = diffFiles.find(f => f.filename === filename || f.filename.endsWith(filename))
         
         if (!file) {
+          console.log('[Tool] read_file failed: file not found')
           const availableFiles = diffFiles.map(f => f.filename).join(', ')
           return { 
             error: `File "${filename}" not found in this PR.`,
@@ -571,6 +578,7 @@ Repository: ${owner}/${repo}`
         
         const pageContent = lines.slice(startLine, endLine).join('\n')
         
+        console.log('[Tool] read_file succeeded: total_pages=' + totalPages)
         return {
           filename: file.filename,
           page,
@@ -589,10 +597,14 @@ Repository: ${owner}/${repo}`
         filter: z.string().describe('Filter string to match filenames (e.g., ".ts" or "src/"). Use empty string to list all files.'),
       }),
       execute: async ({ filter }) => {
+        console.log('[Tool] list_files called: has_filter=' + !!filter)
+        
         let files = diffFiles
         if (filter) {
           files = files.filter(f => f.filename.includes(filter))
         }
+        
+        console.log('[Tool] list_files succeeded: total_files=' + files.length)
         return {
           total_files: files.length,
           files: files.map(f => ({
@@ -612,6 +624,8 @@ Repository: ${owner}/${repo}`
       query: z.string().describe('Search query using GitHub search syntax. Examples: "auth bug is:open label:bug", "is:closed author:johndoe", "memory leak type:issue", "label:enhancement is:open"'),
     }),
     execute: async ({ query }) => {
+      console.log('[Tool] search_issues called')
+      
       try {
         // Automatically scope to this repo and add the user's query
         const searchQuery = encodeURIComponent(`${query} repo:${owner}/${repo}`)
@@ -626,10 +640,13 @@ Repository: ${owner}/${repo}`
         )
 
         if (!searchRes.ok) {
+          console.log('[Tool] search_issues failed: status=' + searchRes.status)
           return { error: `GitHub search failed with status ${searchRes.status}` }
         }
 
         const data = await searchRes.json() as any
+        console.log('[Tool] search_issues succeeded: total_count=' + data.total_count)
+        
         return {
           total_count: data.total_count,
           issues: (data.items || []).map((issue: any) => ({
@@ -646,11 +663,29 @@ Repository: ${owner}/${repo}`
           })),
         }
       } catch (error) {
-        console.error('Issue search error:', error)
+        console.error('[Tool] search_issues error:', error)
         return { error: 'Failed to search issues' }
       }
     },
   })
+
+  // planGitHubOperation is a client-side tool for buffering GitHub API operations
+  // Note: This tool has no execute function - it's handled on the frontend
+  // The backend provides the schema, and the frontend intercepts the tool call via onToolCall
+  chatTools.planGitHubOperation = {
+    description: 'Plan a GitHub API operation (comment, label change, etc.) to be executed later. The user will review and execute these operations when ready. Use this when the user asks you to perform GitHub operations like adding comments, changing labels, closing issues, etc.',
+    inputSchema: z.object({
+      operationType: z.enum(['comment', 'set_labels', 'add_labels']).describe('Type of operation to perform'),
+      repo: z.string().describe('Repository in format owner/repo'),
+      issueNumber: z.number().describe('Issue or PR number'),
+      body: z.string().optional().describe('Comment body (required for comment operations)'),
+      labels: z.array(z.string()).optional().describe('Array of label names (required for label operations)'),
+    }),
+    // No execute function - this is a client-side tool handled by the frontend
+    // When the AI calls this tool, the frontend's onToolCall handler will log and process it
+  }
+  
+  console.log('[Tools] Registered tools:', Object.keys(chatTools).join(', '))
 
   try {
     // Convert UI messages to model messages (handles both old format with content and new format with parts)
@@ -702,8 +737,8 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) =
   // Debug logging
   console.log('=== Review Request ===')
   console.log('Lens:', lens)
-  console.log('Instructions:', instructions || '(none)')
-  console.log('PR:', `${owner}/${repo}#${pull_number}`)
+  console.log('Has instructions:', !!instructions)
+  console.log('Context type: PR-level')
 
   // Fetch PR details and diff from GitHub
   let prDetails: any = null
@@ -741,7 +776,7 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) =
     console.error('Error fetching PR data:', error)
   }
 
-  console.log('PR title:', prDetails?.title || 'N/A')
+  console.log('PR data loaded:', !!prDetails)
   console.log('Diff length:', diff?.length || 0)
 
   // Parse diff into files
@@ -863,9 +898,12 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
         page: z.number().describe('Page number (1-indexed). Each page contains ~100 lines.'),
       }),
       execute: async ({ filename, page }) => {
+        console.log('[Tool] read_file called: page=' + page)
+        
         const file = diffFiles.find(f => f.filename === filename || f.filename.endsWith(filename))
         
         if (!file) {
+          console.log('[Tool] read_file failed: file not found')
           return { error: `File "${filename}" not found.`, available_files: diffFiles.map(f => f.filename).join(', ') }
         }
         
@@ -875,6 +913,7 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
         const startLine = (page - 1) * linesPerPage
         const endLine = Math.min(startLine + linesPerPage, lines.length)
         
+        console.log('[Tool] read_file succeeded: total_pages=' + totalPages)
         return {
           filename: file.filename,
           page,
@@ -892,8 +931,12 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
         filter: z.string().describe('Filter string to match filenames. Use empty string to list all.'),
       }),
       execute: async ({ filter }) => {
+        console.log('[Tool] list_files called: has_filter=' + !!filter)
+        
         let files = diffFiles
         if (filter) files = files.filter(f => f.filename.includes(filter))
+        
+        console.log('[Tool] list_files succeeded: total_files=' + files.length)
         return {
           total_files: files.length,
           files: files.map(f => ({ filename: f.filename, additions: f.additions || 0, deletions: f.deletions || 0 })),
@@ -905,7 +948,7 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
       description: 'Record a review comment for a specific line. Call this for EACH issue you find.',
       inputSchema: reviewCommentSchema,
       execute: async (comment) => {
-        console.log('Review comment:', comment.path, 'L' + comment.line, `[${comment.severity}]`)
+        console.log('[Tool] create_comment called: severity=' + comment.severity)
         return {
           success: true,
           comment: {
@@ -1051,6 +1094,20 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/timeline', async (req, res) 
     console.error('Failed to fetch timeline:', error)
     res.status(500).json({ error: 'Failed to fetch timeline' })
   }
+})
+
+// The Sentry error handler must be registered before any other error middleware and after all controllers
+Sentry.setupExpressErrorHandler(app)
+
+// Optional fallthrough error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // The error id is attached to `res.sentry` to be returned
+  // and optionally displayed to the user for support.
+  res.statusCode = 500
+  res.json({ 
+    error: 'Internal server error',
+    sentryId: (res as any).sentry 
+  })
 })
 
 // Connect to MongoDB and start server

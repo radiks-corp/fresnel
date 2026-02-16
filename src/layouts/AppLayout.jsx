@@ -4,8 +4,10 @@ import { MagnifyingGlass, Folder } from '@phosphor-icons/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { useRepos } from '../hooks/useRepos'
 import { trackEvent } from '../hooks/useAnalytics'
+import { useBackendHealth } from '../hooks/useBackendHealth'
 import ReviewSidebar from '../components/ReviewSidebar'
 import SidebarContext from '../contexts/SidebarContext'
+import { StatusBanner } from '../components/StatusBanner'
 import '../app.css'
 
 const defaultSidebarData = {
@@ -19,6 +21,7 @@ export default function AppLayout() {
   const { repoId, prNumber } = useParams()
   const { user } = useAuth()
   const { data: repos = [] } = useRepos()
+  const { isConnected } = useBackendHealth()
   const navigate = useNavigate()
   const [sidebarData, setSidebarDataState] = useState(defaultSidebarData)
   const [inboxRepoId, setInboxRepoId] = useState(null)
@@ -200,6 +203,10 @@ export default function AppLayout() {
 
   return (
     <SidebarContext.Provider value={{ ...sidebarData, setSidebarData, selectedRepo }}>
+      <StatusBanner 
+        message={!isConnected ? 'Unable to connect to backend server. Some features may be unavailable.' : ''}
+        onDismiss={() => console.log('Status banner dismissed')}
+      />
       <div className="app-shell">
         <ReviewSidebar
           owner={selectedRepo?.owner?.login}

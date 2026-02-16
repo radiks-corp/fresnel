@@ -1,3 +1,12 @@
+// Initialize Sentry as early as possible
+const Sentry = require("@sentry/electron");
+
+Sentry.init({
+  dsn: "https://1313505948be789d210f934165505f77@o4510896900276224.ingest.us.sentry.io/4510896915939328",
+  // Performance Monitoring
+  tracesSampleRate: 1.0, // Adjust this value in production
+});
+
 const { app, BrowserWindow, Notification, ipcMain, shell } = require('electron');
 const path = require('path');
 

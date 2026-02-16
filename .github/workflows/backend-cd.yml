@@ -33,6 +33,15 @@ jobs:
         working-directory: backend
         run: npm run build
 
+      - name: Create Sentry Release
+        working-directory: backend
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: fresnel-un
+          SENTRY_PROJECT: node-express
+        run: |
+          npm run build:sentry || echo "Sentry sourcemap upload failed, continuing deployment"
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
