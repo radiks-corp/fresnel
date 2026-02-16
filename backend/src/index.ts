@@ -82,6 +82,28 @@ function validateGitHubIdentifier(value: string, fieldName: string): string {
   return value
 }
 
+/**
+ * Forward a GitHub error response to the client, including rate limit headers
+ * so the frontend can handle 429s gracefully.
+ */
+function forwardGitHubError(ghRes: Response, expressRes: any, fallbackMessage: string) {
+  const status = ghRes.status
+  const retryAfter = ghRes.headers.get('retry-after')
+  const rateLimitRemaining = ghRes.headers.get('x-ratelimit-remaining')
+  const rateLimitReset = ghRes.headers.get('x-ratelimit-reset')
+
+  if (retryAfter) expressRes.set('Retry-After', retryAfter)
+  if (rateLimitRemaining) expressRes.set('X-RateLimit-Remaining', rateLimitRemaining)
+  if (rateLimitReset) expressRes.set('X-RateLimit-Reset', rateLimitReset)
+
+  const isRateLimited = status === 429 || (status === 403 && retryAfter)
+  const message = isRateLimited
+    ? `Rate limited by GitHub. ${rateLimitReset ? `Resets at ${new Date(Number(rateLimitReset) * 1000).toISOString()}.` : 'Please wait and try again.'}`
+    : fallbackMessage
+
+  return expressRes.status(status).json({ error: message, rateLimited: !!isRateLimited })
+}
+
 // Middleware
 app.use(cors({
   origin: FRONTEND_URL,
@@ -399,6 +421,224 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number', async (req, res) => {
   }
 })
 
+// Get issue details
+app.get('/api/repos/:owner/:repo/issues/:issue_number', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, issue_number } = req.params
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(issue_number)) {
+      return res.status(400).json({ error: 'Invalid issue number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const issueResponse = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!issueResponse.ok) {
+      return forwardGitHubError(issueResponse, res, 'Failed to fetch issue details')
+    }
+
+    const issue = await issueResponse.json()
+    res.json(issue)
+  } catch (error) {
+    console.error('Failed to fetch issue details:', error)
+    res.status(500).json({ error: 'Failed to fetch issue details' })
+  }
+})
+
+// Get issue timeline (comments + events)
+app.get('/api/repos/:owner/:repo/issues/:issue_number/timeline', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, issue_number } = req.params
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(issue_number)) {
+      return res.status(400).json({ error: 'Invalid issue number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const [commentsRes, eventsRes] = await Promise.all([
+      fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/comments?per_page=100`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      }),
+      fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/events?per_page=100`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      }),
+    ])
+
+    // If either request is rate-limited, forward the error
+    if (!commentsRes.ok) {
+      return forwardGitHubError(commentsRes, res, 'Failed to fetch issue comments')
+    }
+    if (!eventsRes.ok) {
+      return forwardGitHubError(eventsRes, res, 'Failed to fetch issue events')
+    }
+
+    const [comments, events] = await Promise.all([
+      commentsRes.json(),
+      eventsRes.json(),
+    ])
+
+    const timeline = [
+      ...(Array.isArray(comments) ? comments.map((c: any) => ({ ...c, type: 'comment' })) : []),
+      ...(Array.isArray(events) ? events.map((e: any) => ({ ...e, type: 'event' })) : []),
+    ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+
+    res.json(timeline)
+  } catch (error) {
+    console.error('Failed to fetch issue timeline:', error)
+    res.status(500).json({ error: 'Failed to fetch issue timeline' })
+  }
+})
+
+// Post a comment on an issue
+app.post('/api/repos/:owner/:repo/issues/:issue_number/comments', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, issue_number } = req.params
+  const { body } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(issue_number)) {
+      return res.status(400).json({ error: 'Invalid issue number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!body || typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'Comment body is required' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const commentRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/comments`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body: body.trim() }),
+      }
+    )
+
+    if (!commentRes.ok) {
+      return forwardGitHubError(commentRes, res, 'Failed to post comment')
+    }
+
+    const comment = await commentRes.json()
+    res.status(201).json(comment)
+  } catch (error) {
+    console.error('Failed to post issue comment:', error)
+    res.status(500).json({ error: 'Failed to post comment' })
+  }
+})
+
+// Update issue state (close/reopen)
+app.patch('/api/repos/:owner/:repo/issues/:issue_number', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, issue_number } = req.params
+  const { state, state_reason } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(issue_number)) {
+      return res.status(400).json({ error: 'Invalid issue number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!state || !['open', 'closed'].includes(state)) {
+    return res.status(400).json({ error: 'Invalid state. Must be "open" or "closed"' })
+  }
+
+  const validReasons = ['completed', 'not_planned', 'duplicate', 'reopened']
+  if (state_reason && !validReasons.includes(state_reason)) {
+    return res.status(400).json({ error: `Invalid state_reason. Must be one of: ${validReasons.join(', ')}` })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const patchBody: Record<string, string> = { state }
+    if (state_reason) patchBody.state_reason = state_reason
+
+    const updateRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patchBody),
+      }
+    )
+
+    if (!updateRes.ok) {
+      return forwardGitHubError(updateRes, res, 'Failed to update issue')
+    }
+
+    const updated = await updateRes.json()
+    res.json(updated)
+  } catch (error) {
+    console.error('Failed to update issue:', error)
+    res.status(500).json({ error: 'Failed to update issue' })
+  }
+})
+
 /**
  * Parse a unified diff into file sections
  */
@@ -551,9 +791,19 @@ async function handleChat(req: any, res: any) {
 - \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page). Much faster than search for getting all issues. Supports filtering by state, labels, etc.
 - \`get_issue\`: Get full details for a specific issue by number. No rate limits.
 - \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
-- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.
+- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
 
-**Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search.`
+**Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search.
+
+## Duplicate Triage Rules
+
+When closing issues as duplicates, you MUST follow these rules strictly:
+
+1. **NEVER close the parent/original issue.** For each group of duplicates, identify the **oldest, most detailed, or most-discussed** issue as the canonical/parent issue. That issue MUST stay open.
+2. **Only close the duplicates**, not the parent. Close each duplicate with \`stateReason: "duplicate"\` and include a comment like "Duplicate of #<parent_number>".
+3. **If unsure which is the parent**, ask the user before closing anything. When in doubt, keep more issues open rather than fewer.
+4. **Never close all issues in a group.** There must always be at least one surviving open issue per topic/bug so the work can still be tracked.
+5. **Summarize your triage plan** before executing it. List which issue you consider the parent and which ones you plan to close, so the user can confirm.`
 
     // Add PR context (truncated to 300 tokens)
     if (prDetails) {
@@ -620,9 +870,19 @@ async function handleChat(req: any, res: any) {
 - \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page, paginated). Much faster and has higher rate limits than search. Supports filtering by state, labels, sort order, etc.
 - \`get_issue\`: Get full details for a specific issue by number. No rate limits. Use this when you need complete details about a specific issue.
 - \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
-- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready.
+- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
 
 **Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search that requires the query syntax.
+
+## Duplicate Triage Rules
+
+When closing issues as duplicates, you MUST follow these rules strictly:
+
+1. **NEVER close the parent/original issue.** For each group of duplicates, identify the **oldest, most detailed, or most-discussed** issue as the canonical/parent issue. That issue MUST stay open.
+2. **Only close the duplicates**, not the parent. Close each duplicate with \`stateReason: "duplicate"\` and include a comment like "Duplicate of #<parent_number>".
+3. **If unsure which is the parent**, ask the user before closing anything. When in doubt, keep more issues open rather than fewer.
+4. **Never close all issues in a group.** There must always be at least one surviving open issue per topic/bug so the work can still be tracked.
+5. **Summarize your triage plan** before executing it. List which issue you consider the parent and which ones you plan to close, so the user can confirm.
 
 ## Context
 
@@ -876,13 +1136,14 @@ Repository: ${owner}/${repo}`
   // Note: This tool has no execute function - it's handled on the frontend
   // The backend provides the schema, and the frontend intercepts the tool call via onToolCall
   chatTools.planGitHubOperation = {
-    description: 'Plan a GitHub API operation (comment, label change, etc.) to be executed later. The user will review and execute these operations when ready. Use this when the user asks you to perform GitHub operations like adding comments, changing labels, closing issues, etc.',
+    description: 'Plan a GitHub API operation to be executed later. The user will review and execute these operations when ready. Use this when the user asks you to perform GitHub operations like adding comments, changing labels, closing issues, reopening issues, etc. You can combine operations — for example, to close an issue as a duplicate, plan a "comment" operation with the duplicate explanation AND a "close_issue" operation on the same issue.',
     inputSchema: z.object({
-      operationType: z.enum(['comment', 'set_labels', 'add_labels']).describe('Type of operation to perform'),
+      operationType: z.enum(['comment', 'set_labels', 'add_labels', 'close_issue', 'reopen_issue']).describe('Type of operation to perform. Use close_issue to close an issue and reopen_issue to reopen it.'),
       repo: z.string().describe('Repository in format owner/repo'),
       issueNumber: z.number().describe('Issue or PR number'),
-      body: z.string().optional().describe('Comment body (required for comment operations)'),
+      body: z.string().optional().describe('Comment body (required for comment operations, optional for close/reopen to leave a closing comment)'),
       labels: z.array(z.string()).optional().describe('Array of label names (required for label operations)'),
+      stateReason: z.enum(['completed', 'not_planned', 'duplicate']).optional().describe('Reason for closing. Use "duplicate" when closing as a duplicate, "not_planned" for won\'t fix, and "completed" (default) for resolved issues.'),
     }),
     // No execute function - this is a client-side tool handled by the frontend
     // When the AI calls this tool, the frontend's onToolCall handler will log and process it

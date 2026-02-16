@@ -1,10 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Outlet } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { MagnifyingGlass, Folder } from '@phosphor-icons/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { useRepos } from '../hooks/useRepos'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useBackendHealth } from '../hooks/useBackendHealth'
+import { useOperationsStore } from '../stores/operationsStore'
 import ReviewSidebar from '../components/ReviewSidebar'
 import SidebarContext from '../contexts/SidebarContext'
 import { StatusBanner } from '../components/StatusBanner'
@@ -56,6 +58,20 @@ export default function AppLayout() {
       setInboxRepoId(repos[0].id.toString())
     }
   }, [repos, inboxRepoId, repoId])
+
+  // Register a global callback so the operations store can trigger React Query invalidation
+  const queryClient = useQueryClient()
+  const setOnOperationSuccess = useOperationsStore((s) => s.setOnOperationSuccess)
+  useEffect(() => {
+    setOnOperationSuccess((operation) => {
+      const [owner, repo] = operation.repo.split('/')
+      const issueNum = String(operation.issueNumber)
+      queryClient.invalidateQueries({ queryKey: ['issueTimeline', owner, repo, issueNum] })
+      queryClient.invalidateQueries({ queryKey: ['issueDetails', owner, repo, issueNum] })
+      queryClient.invalidateQueries({ queryKey: ['inboxIssues'] })
+    })
+    return () => setOnOperationSuccess(null)
+  }, [queryClient, setOnOperationSuccess])
 
   // Filter repos for omnibar search, with selected repo pinned to top
   const sortedFilteredRepos = useMemo(() => {

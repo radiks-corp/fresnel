@@ -9,8 +9,8 @@ import remarkGfm from 'remark-gfm'
 import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useSidebarContext } from '../contexts/SidebarContext'
-import { useOperationsBuffer } from '../hooks/useOperationsBuffer'
-import { OperationsBuffer } from './OperationsBuffer'
+import { useOperationsStore } from '../stores/operationsStore'
+import { OperationsBuffer, UpdatesReviewView } from './OperationsBuffer'
 import './ai-elements/ai-elements.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
@@ -214,6 +214,7 @@ export default function UnifiedReview({
   const [submitComment, setSubmitComment] = useState('')
   const [reviewType, setReviewType] = useState('comment')
   const [showPendingView, setShowPendingView] = useState(false)
+  const [showUpdatesView, setShowUpdatesView] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [reviewSummary, setReviewSummary] = useState(null)
@@ -260,15 +261,9 @@ export default function UnifiedReview({
     })
   }, [reviewApiUrl])
 
-  // Operations buffer for Ask mode
-  const { 
-    operations, 
-    addOperation, 
-    executeOperation, 
-    executeAll, 
-    clearCompleted, 
-    clearAll 
-  } = useOperationsBuffer()
+  // Operations buffer for Ask mode (global Zustand store)
+  const operations = useOperationsStore((s) => s.operations)
+  const addOperation = useOperationsStore((s) => s.addOperation)
 
   // Separate useChat for Ask mode
   const { 
@@ -295,6 +290,7 @@ export default function UnifiedReview({
             issueNumber: toolCall.input.issueNumber,
             body: toolCall.input.body,
             labels: toolCall.input.labels,
+            stateReason: toolCall.input.stateReason,
           })
           
           // Log tool call success (no PII)
@@ -814,6 +810,17 @@ export default function UnifiedReview({
     </>
   )
 
+  if (showUpdatesView && operations.length > 0) {
+    return (
+      <div className={`unified-review-container ${selectedLens ? 'has-lens' : ''}`}>
+        <UpdatesReviewView
+          operations={operations}
+          onClose={() => setShowUpdatesView(false)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className={`unified-review-container ${selectedLens ? 'has-lens' : ''}`}>
       {lensSelector}
@@ -823,17 +830,6 @@ export default function UnifiedReview({
       
       <ScrollToBottom className="ai-conversation" followButtonClassName="hidden">
         <div className="ai-conversation-content">
-          {/* Operations Buffer - shown above messages in Ask mode */}
-          {isAskMode && operations.length > 0 && (
-            <OperationsBuffer
-              operations={operations}
-              executeOperation={executeOperation}
-              executeAll={executeAll}
-              clearCompleted={clearCompleted}
-              clearAll={clearAll}
-            />
-          )}
-          
           {!isReady ? (
             <div className="ai-empty-state">
               <ChatCircle size={40} />
@@ -953,6 +949,14 @@ export default function UnifiedReview({
           )}
         </div>
       </ScrollToBottom>
+
+      {/* Planned Updates - shown above the chatbox */}
+      {isAskMode && operations.length > 0 && (
+        <OperationsBuffer
+          operations={operations}
+          onReview={() => setShowUpdatesView(true)}
+        />
+      )}
 
       {/* Show input at bottom for Ask mode with messages, or review footer */}
       {isAskMode && hasMessages && chatInput}
