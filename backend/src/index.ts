@@ -170,7 +170,7 @@ app.get('/api/inbox/issues', async (req, res) => {
       return res.status(searchRes.status).json({ error: 'GitHub search failed' })
     }
 
-    const data = await searchRes.json()
+    const data = await searchRes.json() as any
     res.json(data.items || [])
   } catch (error) {
     console.error('Failed to search inbox issues:', error)
@@ -217,7 +217,7 @@ app.get('/api/inbox/pulls', async (req, res) => {
       return res.status(searchRes.status).json({ error: 'GitHub search failed' })
     }
 
-    const data = await searchRes.json()
+    const data = await searchRes.json() as any
     const items = data.items || []
 
     // Fetch full PR objects in parallel to get base/head refs for stack detection
@@ -458,19 +458,25 @@ async function handleChat(req: any, res: any) {
 
 ## Important Guidelines
 
-1. **Use your tools to examine the code.** You have access to \`read_file\`, \`list_files\`, and \`search_issues\` tools. Use them to examine specific files from the diff or find related issues before answering questions.
+1. **Use your tools relentlessly to get a complete view.** You have access to \`read_file\`, \`list_files\`, and \`search_issues\` tools. Use them extensively to examine code and find information. Never make assumptions or give up early—keep calling tools with different queries and approaches until you have thoroughly investigated the question. Use tools to discover missing details instead of speculating.
 
-2. **Be thorough but concise.** Reference specific files, functions, and line changes when explaining what the PR does.
+2. **Be thorough and persistent.** When searching for information, try multiple approaches:
+   - For duplicates: Don't just search for "duplicate" labels—actually search for issues with similar topics and compare them
+   - For related issues: Try multiple relevant keywords and search terms
+   - For code questions: Read multiple related files to understand the full context
+   Go above and beyond to create a fully comprehensive answer.
 
-3. **Focus on practical advice.** Highlight potential issues, suggest improvements, and explain the impact of changes.
+3. **Reference specific findings.** Cite specific files, functions, line changes, or issue numbers when explaining what you found.
 
-4. **Structure your responses.** Use headings and bullet points to organize information about different files and changes.
+4. **Focus on practical advice.** Highlight potential issues, suggest improvements, and explain the impact of changes.
+
+5. **Structure your responses clearly.** Use headings and bullet points to organize information about different files and changes.
 
 ## Available Tools
 
 - \`list_files\`: List all changed files with addition/deletion counts. Pass an empty string for filter to see all files.
 - \`read_file\`: Read the diff content for a specific file. Use page=1 to start, and increment for large files.
-- \`search_issues\`: Search for issues in this repository by keyword. Searches titles, descriptions, and discussion comments. Use this to find related issues, prior bugs, or relevant context.`
+- \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, etc.). Use multiple different searches with various keywords to get a complete picture.`
 
     // Add PR context (truncated to 300 tokens)
     if (prDetails) {
@@ -515,15 +521,21 @@ async function handleChat(req: any, res: any) {
 
 ## Important Guidelines
 
-1. **Use your tools.** You have access to \`search_issues\` to look up issues, bugs, and feature requests in the repository.
+1. **Use your tools relentlessly to get a complete view.** You have access to \`search_issues\` to investigate the repository thoroughly. Never make assumptions or give up after one search—keep calling the tool with different queries, keywords, and filters until you have comprehensively investigated the question. For complex questions like finding duplicates, try multiple search approaches to actually compare and analyze the data, not just search for a "duplicate" label.
 
-2. **Be helpful and conversational.** Answer questions about the project, its issues, and its development.
+2. **Be thorough and persistent.** When answering questions:
+   - Try multiple relevant search queries with different keywords
+   - Use various filters (is:open, is:closed, author:, label:, etc.) to explore different angles
+   - Actually analyze and compare the results to draw meaningful conclusions
+   - Go above and beyond to provide complete, well-researched answers
 
-3. **Structure your responses.** Use headings and bullet points to organize information clearly.
+3. **Be helpful and conversational.** Provide specific findings with issue numbers, dates, and relevant details.
+
+4. **Structure your responses clearly.** Use headings and bullet points to organize information from your research.
 
 ## Available Tools
 
-- \`search_issues\`: Search for issues in this repository by keyword. Searches titles, descriptions, and discussion comments. Use this to find bugs, feature requests, or any tracked work.
+- \`search_issues\`: Search using GitHub search syntax (supports is:open, is:closed, label:xyz, author:username, type:pr, type:issue, created:>date, comments:>N, etc.). Use this tool multiple times with different queries to thoroughly investigate questions.
 
 ## Context
 
@@ -595,13 +607,14 @@ Repository: ${owner}/${repo}`
 
   // search_issues is always available (both PR and repo-level chat)
   chatTools.search_issues = tool({
-    description: 'Search for issues in the current GitHub repository by keyword. Searches issue titles, descriptions, and comment discussions. Use this to find related issues, prior bugs, feature requests, or context about the codebase.',
+    description: 'Search for issues and pull requests in the current GitHub repository using GitHub search syntax. Supports advanced filters like is:open, is:closed, label:bug, author:username, assignee:user, mentions:user, type:pr, type:issue, created:>2024-01-01, comments:>5, etc. The repo is automatically scoped, so you don\'t need to add repo: qualifier.',
     inputSchema: z.object({
-      query: z.string().describe('Keyword search term to find matching issues (e.g., "auth bug", "dark mode", "memory leak")'),
+      query: z.string().describe('Search query using GitHub search syntax. Examples: "auth bug is:open label:bug", "is:closed author:johndoe", "memory leak type:issue", "label:enhancement is:open"'),
     }),
     execute: async ({ query }) => {
       try {
-        const searchQuery = encodeURIComponent(`${query} repo:${owner}/${repo} type:issue`)
+        // Automatically scope to this repo and add the user's query
+        const searchQuery = encodeURIComponent(`${query} repo:${owner}/${repo}`)
         const searchRes = await fetch(
           `https://api.github.com/search/issues?q=${searchQuery}&per_page=10&sort=relevance`,
           {
@@ -616,7 +629,7 @@ Repository: ${owner}/${repo}`
           return { error: `GitHub search failed with status ${searchRes.status}` }
         }
 
-        const data = await searchRes.json()
+        const data = await searchRes.json() as any
         return {
           total_count: data.total_count,
           issues: (data.items || []).map((issue: any) => ({
