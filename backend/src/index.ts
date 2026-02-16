@@ -131,6 +131,120 @@ app.get('/api/repos', async (req, res) => {
   }
 })
 
+// Search inbox issues (server-side filtering via GitHub Search API)
+app.get('/api/inbox/issues', async (req, res) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const token = authHeader.slice(7)
+  const repos = (req.query.repos as string) || ''
+  const q = (req.query.q as string) || ''
+
+  if (!repos) {
+    return res.json([])
+  }
+
+  try {
+    // Build repo filter: repo:owner/name+repo:owner2/name2
+    const repoFilter = repos.split(',').map(r => `repo:${r}`).join('+')
+    let searchQuery = `${repoFilter}+type:issue+state:open`
+
+    if (q.trim()) {
+      searchQuery = `${encodeURIComponent(q.trim())}+${searchQuery}`
+    }
+
+    const searchRes = await fetch(
+      `https://api.github.com/search/issues?q=${searchQuery}&per_page=100&sort=updated`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!searchRes.ok) {
+      return res.status(searchRes.status).json({ error: 'GitHub search failed' })
+    }
+
+    const data = await searchRes.json()
+    res.json(data.items || [])
+  } catch (error) {
+    console.error('Failed to search inbox issues:', error)
+    res.status(500).json({ error: 'Failed to search issues' })
+  }
+})
+
+// Search inbox pull requests (server-side filtering via GitHub Search API)
+app.get('/api/inbox/pulls', async (req, res) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const token = authHeader.slice(7)
+  const repos = (req.query.repos as string) || ''
+  const username = (req.query.username as string) || ''
+  const q = (req.query.q as string) || ''
+
+  if (!repos || !username) {
+    return res.json([])
+  }
+
+  try {
+    const repoFilter = repos.split(',').map(r => `repo:${r}`).join('+')
+    let searchQuery = `${repoFilter}+type:pr+state:open+review-requested:${username}+-is:draft`
+
+    if (q.trim()) {
+      searchQuery = `${encodeURIComponent(q.trim())}+${searchQuery}`
+    }
+
+    const searchRes = await fetch(
+      `https://api.github.com/search/issues?q=${searchQuery}&per_page=100&sort=updated`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!searchRes.ok) {
+      return res.status(searchRes.status).json({ error: 'GitHub search failed' })
+    }
+
+    const data = await searchRes.json()
+    const items = data.items || []
+
+    // Fetch full PR objects in parallel to get base/head refs for stack detection
+    const fullPRs = await Promise.all(
+      items.map(async (item: any) => {
+        try {
+          const prRes = await fetch(item.pull_request.url, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/vnd.github.v3+json',
+            },
+          })
+          if (prRes.ok) return await prRes.json()
+          return item
+        } catch {
+          return item
+        }
+      })
+    )
+
+    res.json(fullPRs)
+  } catch (error) {
+    console.error('Failed to search inbox pulls:', error)
+    res.status(500).json({ error: 'Failed to search pull requests' })
+  }
+})
+
 // Get pull requests for a repository
 app.get('/api/repos/:owner/:repo/pulls', async (req, res) => {
   const authHeader = req.headers.authorization
@@ -268,8 +382,8 @@ function buildFilesSummary(files: { filename: string; additions: number; deletio
   return lines.join('\n')
 }
 
-// Chat endpoint for AI conversations - requires repo details in route
-app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => {
+// Shared chat handler — works with or without a PR
+async function handleChat(req: any, res: any) {
   const authHeader = req.headers.authorization
   const { owner, repo, pull_number } = req.params
   const { messages } = req.body
@@ -284,60 +398,67 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
     return res.status(400).json({ error: 'Messages array is required' })
   }
 
+  const hasPR = !!pull_number
+
   // Debug logging
   console.log('=== Chat Request ===')
   console.log('Messages count:', messages?.length)
-  console.log('PR:', `${owner}/${repo}#${pull_number}`)
+  console.log('Context:', hasPR ? `${owner}/${repo}#${pull_number}` : `${owner}/${repo} (repo-level)`)
 
-  // Fetch PR details and diff from GitHub
+  // Fetch PR details and diff from GitHub (only when a PR is specified)
   let prDetails: any = null
   let diff = ''
 
-  try {
-    // Fetch PR details
-    const prRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/vnd.github.v3+json',
-        },
+  if (hasPR) {
+    try {
+      // Fetch PR details
+      const prRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        }
+      )
+      if (prRes.ok) {
+        prDetails = await prRes.json()
       }
-    )
-    if (prRes.ok) {
-      prDetails = await prRes.json()
+
+      // Fetch diff
+      const diffRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3.diff',
+          },
+        }
+      )
+      if (diffRes.ok) {
+        diff = await diffRes.text()
+      }
+    } catch (error) {
+      console.error('Error fetching PR data:', error)
     }
 
-    // Fetch diff
-    const diffRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/vnd.github.v3.diff',
-        },
-      }
-    )
-    if (diffRes.ok) {
-      diff = await diffRes.text()
-    }
-  } catch (error) {
-    console.error('Error fetching PR data:', error)
+    console.log('PR title:', prDetails?.title || 'N/A')
+    console.log('Diff length:', diff?.length || 0)
   }
 
-  console.log('PR title:', prDetails?.title || 'N/A')
-  console.log('Diff length:', diff?.length || 0)
-
-  // Parse diff into files
+  // Parse diff into files (empty when no PR)
   const diffFiles = parseDiffToFiles(diff || '')
-  console.log('Parsed diff files:', diffFiles.length)
+  if (hasPR) console.log('Parsed diff files:', diffFiles.length)
 
-  // Build system prompt
-  let systemPrompt = `You are Fresnel, an AI code review assistant. You help developers understand code, review pull requests, and answer questions about their codebase.
+  // Build system prompt — different depending on whether we have a PR
+  let systemPrompt: string
+
+  if (hasPR) {
+    systemPrompt = `You are Fresnel, an AI code review assistant. You help developers understand code, review pull requests, and answer questions about their codebase.
 
 ## Important Guidelines
 
-1. **Use your tools to examine the code.** You have access to \`read_file\` and \`list_files\` tools. Use them to examine specific files from the diff before answering questions.
+1. **Use your tools to examine the code.** You have access to \`read_file\`, \`list_files\`, and \`search_issues\` tools. Use them to examine specific files from the diff or find related issues before answering questions.
 
 2. **Be thorough but concise.** Reference specific files, functions, and line changes when explaining what the PR does.
 
@@ -348,48 +469,72 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
 ## Available Tools
 
 - \`list_files\`: List all changed files with addition/deletion counts. Pass an empty string for filter to see all files.
-- \`read_file\`: Read the diff content for a specific file. Use page=1 to start, and increment for large files.`
+- \`read_file\`: Read the diff content for a specific file. Use page=1 to start, and increment for large files.
+- \`search_issues\`: Search for issues in this repository by keyword. Searches titles, descriptions, and discussion comments. Use this to find related issues, prior bugs, or relevant context.`
 
-  // Add PR context (truncated to 300 tokens)
-  if (prDetails) {
-    let contextText = ''
-    if (prDetails.title) contextText += `PR Title: ${prDetails.title}\n`
-    contextText += `Repository: ${owner}/${repo} #${pull_number}\n`
-    if (prDetails.body) contextText += `\nPR Description:\n${prDetails.body}`
+    // Add PR context (truncated to 300 tokens)
+    if (prDetails) {
+      let contextText = ''
+      if (prDetails.title) contextText += `PR Title: ${prDetails.title}\n`
+      contextText += `Repository: ${owner}/${repo} #${pull_number}\n`
+      if (prDetails.body) contextText += `\nPR Description:\n${prDetails.body}`
 
-    const truncatedContext = truncateToTokens(contextText, 300)
-    const tokenCount = countTokens(truncatedContext)
-    
-    console.log(`PR context: ${tokenCount} tokens (truncated from ${countTokens(contextText)} tokens)`)
+      const truncatedContext = truncateToTokens(contextText, 300)
+      const tokenCount = countTokens(truncatedContext)
+      
+      console.log(`PR context: ${tokenCount} tokens (truncated from ${countTokens(contextText)} tokens)`)
 
-    if (truncatedContext) {
-      systemPrompt += `\n\n## Pull Request Info (${tokenCount} tokens)\n${truncatedContext}`
+      if (truncatedContext) {
+        systemPrompt += `\n\n## Pull Request Info (${tokenCount} tokens)\n${truncatedContext}`
+      }
     }
-  }
 
-  // Add files summary
-  if (diffFiles.length > 0) {
-    const filesSummary = buildFilesSummary(diffFiles)
-    systemPrompt += `\n\n${filesSummary}`
-  }
-
-  // Add truncated diff context (up to 10,000 tokens)
-  if (diff) {
-    const truncatedDiff = truncateToTokens(diff, 10000)
-    const diffTokenCount = countTokens(truncatedDiff)
-    const originalTokenCount = countTokens(diff)
-    
-    console.log(`Diff context: ${diffTokenCount} tokens (truncated from ${originalTokenCount} tokens)`)
-    
-    systemPrompt += `\n\n## Code Changes (${diffTokenCount} tokens, ${diffFiles.length} files)\n\`\`\`diff\n${truncatedDiff}\n\`\`\``
-    
-    if (originalTokenCount > 10000) {
-      systemPrompt += `\n\n*Note: The diff was truncated. Use the read_file tool to view specific files in full.*`
+    // Add files summary
+    if (diffFiles.length > 0) {
+      const filesSummary = buildFilesSummary(diffFiles)
+      systemPrompt += `\n\n${filesSummary}`
     }
+
+    // Add truncated diff context (up to 10,000 tokens)
+    if (diff) {
+      const truncatedDiff = truncateToTokens(diff, 10000)
+      const diffTokenCount = countTokens(truncatedDiff)
+      const originalTokenCount = countTokens(diff)
+      
+      console.log(`Diff context: ${diffTokenCount} tokens (truncated from ${originalTokenCount} tokens)`)
+      
+      systemPrompt += `\n\n## Code Changes (${diffTokenCount} tokens, ${diffFiles.length} files)\n\`\`\`diff\n${truncatedDiff}\n\`\`\``
+      
+      if (originalTokenCount > 10000) {
+        systemPrompt += `\n\n*Note: The diff was truncated. Use the read_file tool to view specific files in full.*`
+      }
+    }
+  } else {
+    // Repo-level chat — no PR context
+    systemPrompt = `You are Fresnel, an AI assistant for the **${owner}/${repo}** repository. You help developers explore the repo, find issues, understand project history, and answer general questions.
+
+## Important Guidelines
+
+1. **Use your tools.** You have access to \`search_issues\` to look up issues, bugs, and feature requests in the repository.
+
+2. **Be helpful and conversational.** Answer questions about the project, its issues, and its development.
+
+3. **Structure your responses.** Use headings and bullet points to organize information clearly.
+
+## Available Tools
+
+- \`search_issues\`: Search for issues in this repository by keyword. Searches titles, descriptions, and discussion comments. Use this to find bugs, feature requests, or any tracked work.
+
+## Context
+
+Repository: ${owner}/${repo}`
   }
 
-  const tools = {
-    read_file: tool({
+  // Build tools — PR-specific tools only when a PR is present
+  const chatTools: Record<string, any> = {}
+
+  if (hasPR) {
+    chatTools.read_file = tool({
       description: 'Read the diff content for a specific file from the PR. Use this to examine code changes in detail. Supports pagination for large files.',
       inputSchema: z.object({
         filename: z.string().describe('The filename to read (e.g., "src/components/Button.tsx")'),
@@ -424,9 +569,9 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
           has_more: page < totalPages,
         }
       },
-    }),
-    
-    list_files: tool({
+    })
+
+    chatTools.list_files = tool({
       description: 'List all files changed in this PR with their addition/deletion counts.',
       inputSchema: z.object({
         filter: z.string().describe('Filter string to match filenames (e.g., ".ts" or "src/"). Use empty string to list all files.'),
@@ -445,8 +590,54 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
           })),
         }
       },
-    }),
+    })
   }
+
+  // search_issues is always available (both PR and repo-level chat)
+  chatTools.search_issues = tool({
+    description: 'Search for issues in the current GitHub repository by keyword. Searches issue titles, descriptions, and comment discussions. Use this to find related issues, prior bugs, feature requests, or context about the codebase.',
+    inputSchema: z.object({
+      query: z.string().describe('Keyword search term to find matching issues (e.g., "auth bug", "dark mode", "memory leak")'),
+    }),
+    execute: async ({ query }) => {
+      try {
+        const searchQuery = encodeURIComponent(`${query} repo:${owner}/${repo} type:issue`)
+        const searchRes = await fetch(
+          `https://api.github.com/search/issues?q=${searchQuery}&per_page=10&sort=relevance`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/vnd.github.v3+json',
+            },
+          }
+        )
+
+        if (!searchRes.ok) {
+          return { error: `GitHub search failed with status ${searchRes.status}` }
+        }
+
+        const data = await searchRes.json()
+        return {
+          total_count: data.total_count,
+          issues: (data.items || []).map((issue: any) => ({
+            number: issue.number,
+            title: issue.title,
+            state: issue.state,
+            body: issue.body ? issue.body.substring(0, 500) + (issue.body.length > 500 ? '...' : '') : null,
+            labels: issue.labels?.map((l: any) => l.name) || [],
+            user: issue.user?.login,
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+            comments: issue.comments,
+            html_url: issue.html_url,
+          })),
+        }
+      } catch (error) {
+        console.error('Issue search error:', error)
+        return { error: 'Failed to search issues' }
+      }
+    },
+  })
 
   try {
     // Convert UI messages to model messages (handles both old format with content and new format with parts)
@@ -456,7 +647,7 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
       model: anthropic('claude-opus-4-5-20251101'),
       messages: modelMessages,
       system: systemPrompt,
-      tools,
+      tools: chatTools,
       stopWhen: stepCountIs(10),
       providerOptions: {
         anthropic: {
@@ -475,7 +666,13 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', async (req, res) => 
     console.error('Chat error:', error)
     res.status(500).json({ error: 'Failed to generate response' })
   }
-})
+}
+
+// Chat endpoint for AI conversations about a specific PR
+app.post('/api/repos/:owner/:repo/pulls/:pull_number/chat', handleChat)
+
+// Chat endpoint for repo-level AI conversations (no PR context)
+app.post('/api/repos/:owner/:repo/chat', handleChat)
 
 // Review endpoint for structured code reviews - requires repo details in route
 app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) => {

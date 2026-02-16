@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
 import { SpinnerGap, Check, CaretDown, CaretUp, ArrowLeft, ArrowUp, ChatCircle, Wrench, X } from '@phosphor-icons/react'
@@ -7,6 +8,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
+import { useSidebarContext } from '../contexts/SidebarContext'
 import './ai-elements/ai-elements.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
@@ -191,10 +193,16 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
 }
 
 export default function UnifiedReview({ 
-  owner, repo, prNumber, userAvatar, userName, 
-  onJumpToLine, onApplyComment, viewedCount, totalFiles, 
-  pendingComments: appliedPendingComments 
+  owner, repo, repoId, prNumber, userAvatar, userName,
 }) {
+  const navigate = useNavigate()
+  const { 
+    onApplyComment: contextApplyComment, 
+    viewedCount, 
+    totalFiles, 
+    pendingComments: appliedPendingComments 
+  } = useSidebarContext()
+
   const [selectedLens, setSelectedLens] = useState(null)
   const [input, setInput] = useState('')
   const [appliedComments, setAppliedComments] = useState(new Set())
@@ -217,8 +225,11 @@ export default function UnifiedReview({
   const isAskMode = !selectedLens
   
   // Build API URLs - separate endpoints for ask vs review
-  const chatApiUrl = owner && repo && prNumber 
-    ? `${API_URL}/api/repos/${owner}/${repo}/pulls/${prNumber}/chat`
+  // Chat works at repo level (no PR) or PR level
+  const chatApiUrl = owner && repo
+    ? prNumber
+      ? `${API_URL}/api/repos/${owner}/${repo}/pulls/${prNumber}/chat`
+      : `${API_URL}/api/repos/${owner}/${repo}/chat`
     : null
     
   const reviewApiUrl = owner && repo && prNumber 
@@ -342,13 +353,16 @@ export default function UnifiedReview({
   const handleApplyComment = useCallback((commentId, comment) => {
     setAppliedComments(prev => new Set([...prev, commentId]))
     trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
-    if (onApplyComment) {
-      onApplyComment(comment)
+    if (contextApplyComment) {
+      contextApplyComment(comment)
     }
-    if (onJumpToLine) {
-      onJumpToLine(comment.path, comment.line)
+    // Jump to the comment via navigation state
+    if (repoId && prNumber) {
+      navigate(`/app/${repoId}/${prNumber}`, {
+        state: { jumpTo: { file: comment.path, line: comment.line } },
+      })
     }
-  }, [onApplyComment, onJumpToLine])
+  }, [contextApplyComment, navigate, repoId, prNumber])
 
   const handleDismissComment = useCallback((commentId) => {
     setDismissedComments(prev => new Set([...prev, commentId]))
@@ -357,10 +371,13 @@ export default function UnifiedReview({
 
   const handleJumpTo = useCallback((comment) => {
     trackEvent('Review Comment Show Clicked', { file: comment.path, line: comment.line })
-    if (onJumpToLine) {
-      onJumpToLine(comment.path, comment.line)
+    // Use navigation state so AppPage can handle the scroll
+    if (repoId && prNumber) {
+      navigate(`/app/${repoId}/${prNumber}`, {
+        state: { jumpTo: { file: comment.path, line: comment.line } },
+      })
     }
-  }, [onJumpToLine])
+  }, [navigate, repoId, prNumber])
 
   const handleSubmit = (e) => {
     e?.preventDefault()
@@ -587,7 +604,7 @@ export default function UnifiedReview({
               handleSubmit(e)
             }
           }}
-          placeholder={isAskMode ? "Ask about this PR..." : "Additional instructions (optional)"}
+          placeholder={isAskMode ? (prNumber ? "Ask about this PR..." : "Ask about this repo...") : "Additional instructions (optional)"}
           disabled={isLoading || !isReady || (!isAskMode && hasStarted)}
           rows={2}
         />
@@ -750,20 +767,24 @@ export default function UnifiedReview({
           {!isReady ? (
             <div className="ai-empty-state">
               <ChatCircle size={40} />
-              <h3 className="ai-empty-state-title">Select a PR</h3>
+              <h3 className="ai-empty-state-title">Select a repo</h3>
               <p className="ai-empty-state-description">
-                Select a repository and pull request to start.
+                Select a repository to start chatting.
               </p>
             </div>
           ) : !hasMessages && !hasStarted ? (
             <div className="ai-empty-state">
               <ChatCircle size={40} />
               <h3 className="ai-empty-state-title">
-                {isAskMode ? 'Ask about this PR' : 'Ready to review'}
+                {isAskMode 
+                  ? (prNumber ? 'Ask about this PR' : 'Chat with this repo') 
+                  : 'Ready to review'}
               </h3>
               <p className="ai-empty-state-description">
                 {isAskMode 
-                  ? 'Ask questions about the code changes or get explanations.' 
+                  ? (prNumber 
+                      ? 'Ask questions about the code changes or get explanations.' 
+                      : 'Ask questions, search issues, or explore the repository.')
                   : 'Click Start to begin the review, or add instructions first.'}
               </p>
             </div>

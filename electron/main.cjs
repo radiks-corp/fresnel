@@ -28,6 +28,15 @@ function createWindow() {
     mainWindow.loadURL('https://app.reviewgpt.ca');
   }
 
+  // macOS trackpad swipe gestures for back/forward navigation
+  mainWindow.on('swipe', (event, direction) => {
+    if (direction === 'left') {
+      mainWindow.webContents.goBack();
+    } else if (direction === 'right') {
+      mainWindow.webContents.goForward();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
