@@ -34,8 +34,8 @@ jobs:
         uses: getsentry/action-release@v3
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT_FRONTEND }}
+          SENTRY_ORG: fresnel-un
+          SENTRY_PROJECT: react
         with:
           environment: production
           version: ${{ github.sha }}
@@ -71,8 +71,8 @@ jobs:
         uses: getsentry/action-release@v3
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT_BACKEND }}
+          SENTRY_ORG: fresnel-un
+          SENTRY_PROJECT: node-express
         with:
           environment: production
           version: ${{ github.sha }}
