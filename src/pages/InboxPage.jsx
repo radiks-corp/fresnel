@@ -37,7 +37,10 @@ function labelColor(color) {
 }
 
 export default function InboxPage() {
-  const [activeTab, setActiveTab] = useState('pulls')
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = localStorage.getItem('inboxActiveTab')
+    return saved || 'pulls'
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
 
@@ -90,13 +93,21 @@ export default function InboxPage() {
         <div className="inbox-tabs-bar">
           <button
             className={`tab ${activeTab === 'pulls' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('pulls'); trackEvent('Inbox Tab Changed', { tab: 'pulls' }) }}
+            onClick={() => { 
+              setActiveTab('pulls')
+              localStorage.setItem('inboxActiveTab', 'pulls')
+              trackEvent('Inbox Tab Changed', { tab: 'pulls' })
+            }}
           >
             Pull requests <span className="tab-count">{pulls.length}</span>
           </button>
           <button
             className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('issues'); trackEvent('Inbox Tab Changed', { tab: 'issues' }) }}
+            onClick={() => { 
+              setActiveTab('issues')
+              localStorage.setItem('inboxActiveTab', 'issues')
+              trackEvent('Inbox Tab Changed', { tab: 'issues' })
+            }}
           >
             Issues <span className="tab-count">{issues.length}</span>
           </button>

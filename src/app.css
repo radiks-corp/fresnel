@@ -2544,6 +2544,13 @@
   margin-bottom: 0;
 }
 
+.onboarding-info {
+  color: #656d76;
+  font-size: 12px;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
 .onboarding-btn.next:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -2741,4 +2748,59 @@
   .files-sidebar {
     display: none;
   }
+}
+
+/* Status Banner */
+.status-banner {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  z-index: 40;
+  width: 100%;
+  height: 45px;
+  flex: none;
+  overflow: hidden;
+  white-space: normal;
+  background: #fef3c7;
+  padding: 0 16px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 45px;
+  color: #92400e;
+}
+
+.status-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.status-banner-icon {
+  flex-shrink: 0;
+}
+
+.status-banner-text {
+  flex-grow: 0;
+}
+
+.status-banner-dismiss {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 9999px;
+  margin-left: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: #92400e;
+}
+
+.status-banner-dismiss:hover {
+  background: rgba(146, 64, 14, 0.1);
 }

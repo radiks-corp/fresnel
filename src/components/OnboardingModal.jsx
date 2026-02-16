@@ -96,6 +96,7 @@ export default function OnboardingModal() {
                   autoFocus
                 />
                 {patError && <p className="onboarding-error">{patError}</p>}
+                <p className="onboarding-info">Your token is never stored and stays only on your machine.</p>
               </form>
               <div className="scope-list">
                 {TOKEN_SCOPES.map((scope, i) => (

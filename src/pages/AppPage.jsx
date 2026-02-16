@@ -153,7 +153,10 @@ function parseDiff(diffText) {
 function AppPage() {
   const [selectedPR, setSelectedPR] = useState(null)
 
-  const [activeTab, setActiveTab] = useState('conversation')
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = localStorage.getItem('appPageActiveTab')
+    return saved || 'conversation'
+  })
   const [viewedFiles, setViewedFiles] = useState({})
   const [collapsedFiles, setCollapsedFiles] = useState({})
   const [pendingComments, setPendingComments] = useState([])
@@ -543,13 +546,21 @@ function AppPage() {
 
         <button 
           className={`tab ${activeTab === 'conversation' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('conversation'); trackEvent('Tab Changed', { tab: 'conversation' }) }}
+          onClick={() => { 
+            setActiveTab('conversation')
+            localStorage.setItem('appPageActiveTab', 'conversation')
+            trackEvent('Tab Changed', { tab: 'conversation' })
+          }}
         >
           Conversation <span className="tab-count">{timeline.filter(t => t.type === 'issue_comment' || t.type === 'review').length + (prDetails?.body ? 1 : 0)}</span>
         </button>
         <button 
           className={`tab ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('files'); trackEvent('Tab Changed', { tab: 'files_changed' }) }}
+          onClick={() => { 
+            setActiveTab('files')
+            localStorage.setItem('appPageActiveTab', 'files')
+            trackEvent('Tab Changed', { tab: 'files_changed' })
+          }}
         >
           Files changed <span className="tab-count">{parsedFiles.length}</span>
         </button>

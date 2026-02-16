@@ -9,6 +9,8 @@ import remarkGfm from 'remark-gfm'
 import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useSidebarContext } from '../contexts/SidebarContext'
+import { useOperationsBuffer } from '../hooks/useOperationsBuffer'
+import { OperationsBuffer } from './OperationsBuffer'
 import './ai-elements/ai-elements.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
@@ -258,14 +260,71 @@ export default function UnifiedReview({
     })
   }, [reviewApiUrl])
 
+  // Operations buffer for Ask mode
+  const { 
+    operations, 
+    addOperation, 
+    executeOperation, 
+    executeAll, 
+    clearCompleted, 
+    clearAll 
+  } = useOperationsBuffer()
+
   // Separate useChat for Ask mode
   const { 
     messages: chatMessages, 
     sendMessage: sendChatMessage, 
     status: chatStatus, 
-    error: chatError 
+    error: chatError,
+    addToolOutput
   } = useChat({
     transport: chatTransport || undefined,
+    async onToolCall({ toolCall }) {
+      // Check if it's a dynamic tool first for proper type narrowing
+      if (toolCall.dynamic) return
+      
+      // Handle the planGitHubOperation tool
+      if (toolCall.toolName === 'planGitHubOperation') {
+        // Log tool call received (no PII - only operation type)
+        console.log(`[UnifiedReview] Tool call received: tool=planGitHubOperation, operationType=${toolCall.input.operationType}`)
+        
+        try {
+          const operation = addOperation({
+            type: toolCall.input.operationType,
+            repo: toolCall.input.repo,
+            issueNumber: toolCall.input.issueNumber,
+            body: toolCall.input.body,
+            labels: toolCall.input.labels,
+          })
+          
+          // Log tool call success (no PII)
+          console.log(`[UnifiedReview] Tool call succeeded: tool=planGitHubOperation, operationId=${operation.id}`)
+          
+          // Return success to the AI without awaiting (to avoid potential deadlocks)
+          addToolOutput({
+            tool: 'planGitHubOperation',
+            toolCallId: toolCall.toolCallId,
+            output: {
+              success: true,
+              operationId: operation.id,
+              message: 'Operation added to queue'
+            }
+          })
+        } catch (error) {
+          // Log tool call failure (no PII)
+          console.error(`[UnifiedReview] Tool call failed: tool=planGitHubOperation, error=${error.name}`)
+          
+          addToolOutput({
+            tool: 'planGitHubOperation',
+            toolCallId: toolCall.toolCallId,
+            output: {
+              success: false,
+              error: error.message
+            }
+          })
+        }
+      }
+    }
   })
 
   // Separate useChat for Review mode
@@ -764,6 +823,17 @@ export default function UnifiedReview({
       
       <ScrollToBottom className="ai-conversation" followButtonClassName="hidden">
         <div className="ai-conversation-content">
+          {/* Operations Buffer - shown above messages in Ask mode */}
+          {isAskMode && operations.length > 0 && (
+            <OperationsBuffer
+              operations={operations}
+              executeOperation={executeOperation}
+              executeAll={executeAll}
+              clearCompleted={clearCompleted}
+              clearAll={clearAll}
+            />
+          )}
+          
           {!isReady ? (
             <div className="ai-empty-state">
               <ChatCircle size={40} />
@@ -887,6 +957,11 @@ export default function UnifiedReview({
       {/* Show input at bottom for Ask mode with messages, or review footer */}
       {isAskMode && hasMessages && chatInput}
       {!isAskMode && hasStarted && reviewFooter}
+      
+      {/* Disclaimer message */}
+      <div className="chat-disclaimer">
+        Fresnel does not submit any changes to GitHub without your approval
+      </div>
     </div>
   )
 }

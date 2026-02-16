@@ -710,6 +710,49 @@
   margin-bottom: 0;
 }
 
+/* Table styling in review comments */
+.review-comment-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 12px 0;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.review-comment-body thead {
+  background: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.review-comment-body th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #24292f;
+  white-space: normal;
+  word-wrap: break-word;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.review-comment-body td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef1f4;
+  color: #57606a;
+  white-space: normal;
+  word-wrap: break-word;
+  vertical-align: top;
+}
+
+.review-comment-body tr:last-child td {
+  border-bottom: none;
+}
+
+.review-comment-body tbody tr:hover {
+  background: #f6f8fa;
+}
+
 .review-comment-actions {
   display: flex;
   align-items: center;
