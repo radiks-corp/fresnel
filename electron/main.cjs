@@ -1,13 +1,3 @@
-// Initialize Sentry as early as possible
-// Use /main for Electron main process
-const Sentry = require("@sentry/electron/main");
-
-Sentry.init({
-  dsn: "https://1313505948be789d210f934165505f77@o4510896900276224.ingest.us.sentry.io/4510896915939328",
-  // Performance Monitoring
-  tracesSampleRate: 1.0, // Adjust this value in production
-});
-
 const { app, BrowserWindow, Notification, ipcMain, shell } = require('electron');
 const path = require('path');
 
@@ -17,6 +7,16 @@ let pollingInterval = null;
 let seenReviewRequests = new Set();
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Initialize Sentry only in production
+// Use /main for Electron main process
+const Sentry = require("@sentry/electron/main");
+
+Sentry.init({
+  dsn: "https://1313505948be789d210f934165505f77@o4510896900276224.ingest.us.sentry.io/4510896915939328",
+  enabled: !isDev,
+  tracesSampleRate: 1.0,
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
