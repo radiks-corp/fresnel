@@ -6,9 +6,10 @@ import { SpinnerGap, Check, CaretDown, ArrowLeft, ArrowUp, ChatCircle, Wrench, X
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
-import { useDiagnosticTrackers } from '../hooks/useDiagnostics'
 import { useSidebarContext } from '../contexts/SidebarContext'
 import { useOperationsStore } from '../stores/operationsStore'
 import { OperationsBuffer, UpdatesReviewView } from './OperationsBuffer'
@@ -57,6 +58,7 @@ function MessageResponse({ children }) {
     <div className="ai-message-response">
       <ReactMarkdown 
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
         components={{ table: TableWrapper }}
       >
         {children}
@@ -164,7 +166,7 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
         </span>
       </div>
       <div className="review-comment-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>
           {comment.body}
         </ReactMarkdown>
       </div>
@@ -203,8 +205,22 @@ export default function UnifiedReview({
     onApplyComment: contextApplyComment, 
     viewedCount, 
     totalFiles, 
-    pendingComments: appliedPendingComments 
   } = useSidebarContext()
+
+  // Read pending review comments from the global operations store
+  const repoFullName = owner && repo ? `${owner}/${repo}` : ''
+  const allOperations = useOperationsStore((s) => s.operations)
+  const appliedPendingComments = useMemo(
+    () =>
+      allOperations.filter(
+        (op) =>
+          op.type === 'review_comment' &&
+          op.status === 'pending' &&
+          op.repo === repoFullName &&
+          op.prNumber === Number(prNumber)
+      ),
+    [allOperations, repoFullName, prNumber]
+  )
 
   const [selectedLens, setSelectedLens] = useState(null)
   const [input, setInput] = useState('')
@@ -220,8 +236,6 @@ export default function UnifiedReview({
   const summaryRef = useRef(null)
   const reviewStartTimeRef = useRef(null)
   const summaryFetchedRef = useRef(false)
-  const { record, startSpan, endSpan } = useDiagnosticTrackers()
-
   // Detect if summary text is clamped (overflows 4 lines)
   useEffect(() => {
     if (summaryRef.current) {
@@ -385,13 +399,6 @@ export default function UnifiedReview({
         repo: `${owner}/${repo}`,
         pr_number: prNumber,
       })
-      record({
-        category: 'review',
-        level: 'info',
-        action: 'review-completed',
-        message: 'AI review response completed',
-        tags: { lens: selectedLens?.id || 'unknown', commentsFound: reviewComments.length },
-      })
 
       if (reviewComments.length === 0) return
       summaryFetchedRef.current = true
@@ -419,16 +426,9 @@ export default function UnifiedReview({
         })
         .catch(() => {})
     }
-  }, [isAskMode, hasStarted, isLoading, reviewComments, owner, repo, prNumber, record, selectedLens?.id, reviewDuration])
+  }, [isAskMode, hasStarted, isLoading, reviewComments, owner, repo, prNumber, selectedLens?.id, reviewDuration])
 
   const handleApplyComment = useCallback((commentId, comment) => {
-    record({
-      category: 'review',
-      level: 'info',
-      action: 'review-comment-applied',
-      message: `Applied comment on ${comment.path}:${comment.line}`,
-      tags: { severity: comment.severity },
-    })
     setAppliedComments(prev => new Set([...prev, commentId]))
     trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
     if (contextApplyComment) {
@@ -440,19 +440,12 @@ export default function UnifiedReview({
         state: { jumpTo: { file: comment.path, line: comment.line } },
       })
     }
-  }, [contextApplyComment, navigate, repoId, prNumber, record])
+  }, [contextApplyComment, navigate, repoId, prNumber])
 
   const handleDismissComment = useCallback((commentId) => {
-    record({
-      category: 'review',
-      level: 'warn',
-      action: 'review-comment-dismissed',
-      message: 'Review comment dismissed',
-      tags: { commentId },
-    })
     setDismissedComments(prev => new Set([...prev, commentId]))
     trackEvent('Review Comment Dismissed', { comment_id: commentId })
-  }, [record])
+  }, [])
 
   const handleJumpTo = useCallback((comment) => {
     trackEvent('Review Comment Show Clicked', { file: comment.path, line: comment.line })
@@ -470,10 +463,6 @@ export default function UnifiedReview({
     if (!isReady || isLoading) return
 
     if (isAskMode) {
-      const spanId = startSpan('review-ask-submit', {
-        category: 'review',
-        tags: { repo: `${owner}/${repo}` },
-      })
       // Ask mode - use chat endpoint
       trackEvent('Chat Message Sent', {
         repo: `${owner}/${repo}`,
@@ -481,15 +470,7 @@ export default function UnifiedReview({
       })
       sendChatMessage({ text: input })
       setInput('')
-      endSpan(spanId, {
-        category: 'review',
-        message: 'Ask-mode prompt submitted',
-      })
     } else {
-      const spanId = startSpan('review-start', {
-        category: 'review',
-        tags: { lens: selectedLens.id },
-      })
       // Review mode - use review endpoint
       setHasStarted(true)
       reviewStartTimeRef.current = Date.now()
@@ -510,11 +491,6 @@ export default function UnifiedReview({
         }
       })
       setInput('')
-      endSpan(spanId, {
-        category: 'review',
-        message: 'Review run submitted',
-        tags: { lens: selectedLens.id },
-      })
     }
   }
 
@@ -701,10 +677,10 @@ export default function UnifiedReview({
               <div key={comment.id} className="pending-view-item">
                 <div className="pending-view-item-header">
                   <span className="pending-view-file">{comment.path}</span>
-                  <span className="pending-view-line">L{comment.line}</span>
+                  <span className="pending-view-line">{comment.startLine ? `L${comment.startLine}-L${comment.line}` : `L${comment.line}`}</span>
                 </div>
                 <div className="pending-view-item-body">
-                  <ReactMarkdown>{comment.body}</ReactMarkdown>
+                  <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body}</ReactMarkdown>
                 </div>
               </div>
             ))}

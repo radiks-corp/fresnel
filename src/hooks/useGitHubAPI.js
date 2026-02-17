@@ -1,8 +1,3 @@
-import {
-  recordDiagnosticEvent,
-  startDiagnosticSpan,
-  endDiagnosticSpan,
-} from '../stores/diagnosticsStore'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 const MAX_RETRIES = 3
@@ -38,42 +33,12 @@ function getRateLimitDelay(res, attempt) {
  * 403 when the response indicates a secondary rate limit.
  */
 async function fetchWithRateLimitRetry(url, options, attempt = 0) {
-  const spanId = startDiagnosticSpan('api-fetch', {
-    category: 'network',
-    message: 'Outbound HTTP request',
-    tags: {
-      attempt,
-      method: options?.method || 'GET',
-      target: url.includes('api.github.com') ? 'github' : 'backend',
-    },
-    context: { url },
-  })
-  const startedAt = performance.now()
   const res = await fetch(url, options)
 
   if (res.status === 429 || (res.status === 403 && isSecondaryRateLimit(res))) {
-    recordDiagnosticEvent({
-      category: 'network',
-      level: 'warn',
-      action: 'rate-limit-detected',
-      message: `Rate limit response ${res.status}`,
-      tags: {
-        attempt,
-        retryAfter: res.headers.get('retry-after') || '',
-        remaining: res.headers.get('x-ratelimit-remaining') || '',
-      },
-      context: { url },
-    })
     if (attempt >= MAX_RETRIES) {
       const remaining = res.headers.get('x-ratelimit-remaining')
       const resetAt = res.headers.get('x-ratelimit-reset')
-      endDiagnosticSpan(spanId, {
-        category: 'network',
-        level: 'error',
-        message: `Rate limit retry budget exhausted (${res.status})`,
-        tags: { attempt, exhausted: true },
-        durationMs: Math.round(performance.now() - startedAt),
-      })
       throw new RateLimitError(res.status, remaining, resetAt)
     }
 
@@ -82,27 +47,8 @@ async function fetchWithRateLimitRetry(url, options, attempt = 0) {
       `[API] Rate limited (${res.status}), retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${MAX_RETRIES})`
     )
     await sleep(delay)
-    endDiagnosticSpan(spanId, {
-      category: 'network',
-      level: 'warn',
-      message: 'Request scheduled for retry',
-      tags: { attempt, delayMs: delay },
-      durationMs: Math.round(performance.now() - startedAt),
-    })
     return fetchWithRateLimitRetry(url, options, attempt + 1)
   }
-
-  endDiagnosticSpan(spanId, {
-    category: 'network',
-    level: res.ok ? 'info' : 'warn',
-    message: `HTTP response ${res.status}`,
-    tags: {
-      status: res.status,
-      ok: res.ok,
-      attempt,
-    },
-    durationMs: Math.round(performance.now() - startedAt),
-  })
 
   return res
 }
@@ -130,7 +76,6 @@ export class RateLimitError extends Error {
 export async function apiFetch(path, options = {}) {
   const token = getToken()
   if (!token) throw new Error('No auth token')
-  const startedAt = performance.now()
 
   const res = await fetchWithRateLimitRetry(`${API_URL}${path}`, {
     ...options,
@@ -138,46 +83,8 @@ export async function apiFetch(path, options = {}) {
   })
 
   if (!res.ok) {
-    recordDiagnosticEvent({
-      category: 'network',
-      level: 'error',
-      action: 'backend-request-failed',
-      message: `Backend request failed: ${path}`,
-      tags: { status: res.status, path },
-      durationMs: Math.round(performance.now() - startedAt),
-    })
     if (res.status === 429) throw new RateLimitError(res.status)
     throw new Error(`API error ${res.status}`)
-  }
-  return res
-}
-
-export async function githubFetch(url, options = {}) {
-  const token = getToken()
-  if (!token) throw new Error('No auth token')
-  const startedAt = performance.now()
-
-  const res = await fetchWithRateLimitRetry(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      ...options.headers,
-    },
-  })
-
-  if (!res.ok) {
-    recordDiagnosticEvent({
-      category: 'network',
-      level: 'error',
-      action: 'github-request-failed',
-      message: 'GitHub API request failed',
-      tags: { status: res.status },
-      context: { url },
-      durationMs: Math.round(performance.now() - startedAt),
-    })
-    if (res.status === 429) throw new RateLimitError(res.status)
-    throw new Error(`GitHub API error ${res.status}`)
   }
   return res
 }
