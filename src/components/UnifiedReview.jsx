@@ -2,10 +2,12 @@ import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from 'rea
 import { useNavigate } from 'react-router-dom'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
-import { SpinnerGap, Check, CaretDown, CaretUp, ArrowLeft, ArrowUp, ChatCircle, Wrench, X } from '@phosphor-icons/react'
+import { SpinnerGap, Check, CaretDown, ArrowLeft, ArrowUp, ChatCircle, Wrench, X } from '@phosphor-icons/react'
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useSidebarContext } from '../contexts/SidebarContext'
@@ -56,6 +58,7 @@ function MessageResponse({ children }) {
     <div className="ai-message-response">
       <ReactMarkdown 
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
         components={{ table: TableWrapper }}
       >
         {children}
@@ -163,7 +166,7 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
         </span>
       </div>
       <div className="review-comment-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>
           {comment.body}
         </ReactMarkdown>
       </div>
@@ -186,7 +189,7 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
             onClick={() => onApply(comment.id, comment)}
             disabled={applied}
           >
-            {applied ? <><Check size={14} /> Applied</> : 'Apply'}
+            {applied ? <><Check size={14} /> Added</> : 'Add'}
           </button>
         </div>
       </div>
@@ -202,25 +205,45 @@ export default function UnifiedReview({
     onApplyComment: contextApplyComment, 
     viewedCount, 
     totalFiles, 
-    pendingComments: appliedPendingComments 
   } = useSidebarContext()
+
+  // Read pending review comments from the global operations store
+  const repoFullName = owner && repo ? `${owner}/${repo}` : ''
+  const allOperations = useOperationsStore((s) => s.operations)
+  const appliedPendingComments = useMemo(
+    () =>
+      allOperations.filter(
+        (op) =>
+          op.type === 'review_comment' &&
+          op.status === 'pending' &&
+          op.repo === repoFullName &&
+          op.prNumber === Number(prNumber)
+      ),
+    [allOperations, repoFullName, prNumber]
+  )
 
   const [selectedLens, setSelectedLens] = useState(null)
   const [input, setInput] = useState('')
   const [appliedComments, setAppliedComments] = useState(new Set())
   const [dismissedComments, setDismissedComments] = useState(new Set())
   const [hasStarted, setHasStarted] = useState(false)
-  const [showSubmitDropup, setShowSubmitDropup] = useState(false)
-  const [submitComment, setSubmitComment] = useState('')
-  const [reviewType, setReviewType] = useState('comment')
   const [showPendingView, setShowPendingView] = useState(false)
   const [showUpdatesView, setShowUpdatesView] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState(null)
   const [reviewSummary, setReviewSummary] = useState(null)
   const [reviewDuration, setReviewDuration] = useState(null)
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [summaryClamped, setSummaryClamped] = useState(false)
+  const summaryRef = useRef(null)
   const reviewStartTimeRef = useRef(null)
   const summaryFetchedRef = useRef(false)
+  // Detect if summary text is clamped (overflows 4 lines)
+  useEffect(() => {
+    if (summaryRef.current) {
+      const lineHeight = parseFloat(getComputedStyle(summaryRef.current).lineHeight)
+      const maxHeight = lineHeight * 4
+      setSummaryClamped(summaryRef.current.scrollHeight > maxHeight)
+    }
+  }, [reviewSummary])
 
   const getToken = () => localStorage.getItem('github_pat')
   
@@ -403,7 +426,7 @@ export default function UnifiedReview({
         })
         .catch(() => {})
     }
-  }, [isAskMode, hasStarted, isLoading, reviewComments, owner, repo, prNumber])
+  }, [isAskMode, hasStarted, isLoading, reviewComments, owner, repo, prNumber, selectedLens?.id, reviewDuration])
 
   const handleApplyComment = useCallback((commentId, comment) => {
     setAppliedComments(prev => new Set([...prev, commentId]))
@@ -486,81 +509,13 @@ export default function UnifiedReview({
     setInput('')
     setAppliedComments(new Set())
     setDismissedComments(new Set())
-    setShowSubmitDropup(false)
     setShowPendingView(false)
-    setSubmitComment('')
-    setReviewType('comment')
     setReviewSummary(null)
     setReviewDuration(null)
+    setSummaryExpanded(false)
+    setSummaryClamped(false)
     reviewStartTimeRef.current = null
     summaryFetchedRef.current = false
-  }
-
-  // Submit review with all pending comments
-  const handleSubmitReview = async () => {
-    if (!owner || !repo || !prNumber) return
-    
-    const token = getToken()
-    if (!token) return
-
-    setIsSubmitting(true)
-    setSubmitError(null)
-
-    try {
-      // Map review type to GitHub event
-      const eventMap = {
-        'comment': 'COMMENT',
-        'approve': 'APPROVE',
-        'request_changes': 'REQUEST_CHANGES'
-      }
-
-      // Format pending comments for GitHub API
-      const comments = (appliedPendingComments || []).map(comment => ({
-        path: comment.path,
-        line: comment.line,
-        body: comment.body
-      }))
-
-      const response = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/vnd.github+json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            body: submitComment || (reviewType === 'request_changes' ? 'Changes requested.' : undefined),
-            event: eventMap[reviewType],
-            comments: comments.length > 0 ? comments : undefined
-          })
-        }
-      )
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || 'Failed to submit review')
-      }
-
-      trackEvent('Review Submitted to GitHub', {
-        repo: `${owner}/${repo}`,
-        pr_number: prNumber,
-        review_type: reviewType,
-        comments_count: comments.length,
-      })
-
-      // Success - close the dropup and reset
-      setShowSubmitDropup(false)
-      setSubmitComment('')
-      // Clear the pending comments by calling handleClearLens or notifying parent
-      handleClearLens()
-    } catch (err) {
-      setSubmitError(err.message)
-      trackEvent('Review Submit Failed', { error: err.message })
-    } finally {
-      setIsSubmitting(false)
-    }
   }
 
   // Count visible (non-dismissed, non-applied) comments
@@ -597,7 +552,26 @@ export default function UnifiedReview({
             </button>
           </div>
           {reviewSummary && (
-            <p className="review-status-summary">{reviewSummary}</p>
+            <>
+              <p
+                ref={summaryRef}
+                className={`review-status-summary ${summaryExpanded ? '' : 'clamped'}`}
+              >
+                {reviewSummary}
+              </p>
+              {summaryClamped && (
+                <button
+                  className="review-summary-toggle"
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                >
+                  {summaryExpanded ? 'Show less' : 'Show more'}
+                  <CaretDown
+                    size={14}
+                    className={summaryExpanded ? 'rotated' : ''}
+                  />
+                </button>
+              )}
+            </>
           )}
         </>
       )}
@@ -690,77 +664,7 @@ export default function UnifiedReview({
   // Render footer for review mode
   const reviewFooter = (
     <>
-      {showSubmitDropup ? (
-        <div className="submit-accordion">
-          <div className="submit-accordion-header">
-            <span>Finish your review</span>
-          </div>
-          <div className="submit-accordion-body">
-            <textarea
-              className="submit-dropup-textarea"
-              placeholder="Leave a comment"
-              value={submitComment}
-              onChange={(e) => setSubmitComment(e.target.value)}
-            />
-            <div className="submit-dropup-options">
-              <label className={`submit-option ${reviewType === 'comment' ? 'selected' : ''}`}>
-                <input type="radio" name="reviewType" value="comment"
-                  checked={reviewType === 'comment'}
-                  onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'comment' }) }}
-                />
-                <span className="option-radio" />
-                <div className="option-content">
-                  <span className="option-title">Comment</span>
-                  <span className="option-desc">Submit general feedback without explicit approval.</span>
-                </div>
-              </label>
-              <label className={`submit-option ${reviewType === 'approve' ? 'selected' : ''}`}>
-                <input type="radio" name="reviewType" value="approve"
-                  checked={reviewType === 'approve'}
-                  onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'approve' }) }}
-                />
-                <span className="option-radio" />
-                <div className="option-content">
-                  <span className="option-title">Approve</span>
-                  <span className="option-desc">Submit feedback and approve merging these changes.</span>
-                </div>
-              </label>
-              <label className={`submit-option ${reviewType === 'request_changes' ? 'selected' : ''}`}>
-                <input type="radio" name="reviewType" value="request_changes"
-                  checked={reviewType === 'request_changes'}
-                  onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'request_changes' }) }}
-                />
-                <span className="option-radio" />
-                <div className="option-content">
-                  <span className="option-title">Request changes</span>
-                  <span className="option-desc">Submit feedback suggesting changes.</span>
-                </div>
-              </label>
-            </div>
-          </div>
-          <div className="submit-accordion-footer">
-            <button 
-              className="submit-dropup-cancel" 
-              onClick={() => { setShowSubmitDropup(false); trackEvent('Review Submit Cancelled') }}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </button>
-            <button 
-              className="submit-dropup-submit"
-              onClick={handleSubmitReview}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? <SpinnerGap size={16} className="spinning" /> : 'Submit review'}
-            </button>
-          </div>
-          {submitError && (
-            <div className="submit-error">
-              {submitError}
-            </div>
-          )}
-        </div>
-      ) : showPendingView ? (
+      {showPendingView ? (
         <div className="pending-comments-view">
           <div className="pending-view-header">
             <button className="back-btn" onClick={() => setShowPendingView(false)}>
@@ -773,24 +677,16 @@ export default function UnifiedReview({
               <div key={comment.id} className="pending-view-item">
                 <div className="pending-view-item-header">
                   <span className="pending-view-file">{comment.path}</span>
-                  <span className="pending-view-line">L{comment.line}</span>
+                  <span className="pending-view-line">{comment.startLine ? `L${comment.startLine}-L${comment.line}` : `L${comment.line}`}</span>
                 </div>
                 <div className="pending-view-item-body">
-                  <ReactMarkdown>{comment.body}</ReactMarkdown>
+                  <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body}</ReactMarkdown>
                 </div>
               </div>
             ))}
             {(!appliedPendingComments || appliedPendingComments.length === 0) && (
               <div className="pending-view-empty">No pending comments</div>
             )}
-          </div>
-          <div className="pending-view-footer">
-            <button 
-              className="submit-review-btn"
-              onClick={() => { setShowPendingView(false); setShowSubmitDropup(true); }}
-            >
-              Submit review
-            </button>
           </div>
         </div>
       ) : (
@@ -801,10 +697,6 @@ export default function UnifiedReview({
               Comments {appliedPendingComments?.length || 0}
             </button>
           </div>
-          <button className="submit-review-btn" onClick={() => setShowSubmitDropup(true)}>
-            Submit review
-            <CaretUp size={14} weight="bold" />
-          </button>
         </div>
       )}
     </>

@@ -44,15 +44,14 @@ export default function InboxPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
 
+  const { user, loading } = useAuth()
+  const navigate = useNavigate()
+  const { selectedRepo } = useSidebarContext()
   // Debounce search query so we don't fire a request on every keystroke
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300)
     return () => clearTimeout(timer)
-  }, [searchQuery])
-
-  const { user, loading } = useAuth()
-  const navigate = useNavigate()
-  const { selectedRepo } = useSidebarContext()
+  }, [searchQuery, activeTab])
 
   // Data fetching via react-query hooks (search is handled server-side)
   const { data: repos = [], isLoading: loadingRepos } = useRepos()
@@ -92,7 +91,7 @@ export default function InboxPage() {
         <div className="inbox-tabs-bar">
           <button
             className={`tab ${activeTab === 'pulls' ? 'active' : ''}`}
-            onClick={() => { 
+            onClick={() => {
               setActiveTab('pulls')
               localStorage.setItem('inboxActiveTab', 'pulls')
               trackEvent('Inbox Tab Changed', { tab: 'pulls' })
@@ -102,7 +101,7 @@ export default function InboxPage() {
           </button>
           <button
             className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
-            onClick={() => { 
+            onClick={() => {
               setActiveTab('issues')
               localStorage.setItem('inboxActiveTab', 'issues')
               trackEvent('Inbox Tab Changed', { tab: 'issues' })

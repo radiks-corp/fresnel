@@ -162,6 +162,12 @@ ipcMain.on('update-token', (event, token) => {
   }
 });
 
+ipcMain.on('open-external', (event, url) => {
+  if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url);
+  }
+});
+
 // App lifecycle
 app.whenReady().then(() => {
   createWindow();

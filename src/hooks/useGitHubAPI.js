@@ -88,23 +88,3 @@ export async function apiFetch(path, options = {}) {
   }
   return res
 }
-
-export async function githubFetch(url, options = {}) {
-  const token = getToken()
-  if (!token) throw new Error('No auth token')
-
-  const res = await fetchWithRateLimitRetry(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      ...options.headers,
-    },
-  })
-
-  if (!res.ok) {
-    if (res.status === 429) throw new RateLimitError(res.status)
-    throw new Error(`GitHub API error ${res.status}`)
-  }
-  return res
-}

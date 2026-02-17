@@ -6,7 +6,7 @@ export function useIssueDetails(owner, repo, issueNumber) {
     queryKey: ['issueDetails', owner, repo, issueNumber],
     queryFn: async () => {
       const res = await apiFetch(`/api/repos/${owner}/${repo}/issues/${issueNumber}`)
-      return res.json()
+      return await res.json()
     },
     enabled: !!owner && !!repo && !!issueNumber,
   })

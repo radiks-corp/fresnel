@@ -1,17 +1,93 @@
-# React + Vite
+# Fresnel
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Fresnel is an AI-assisted GitHub review workspace focused on pull-request and
+issue triage. It ships a React/Vite frontend, an Electron wrapper, and an
+Express backend that brokers GitHub + model APIs.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Frontend: React 18, Vite, React Query, Zustand
+- Desktop wrapper: Electron
+- Backend: Express + TypeScript (`backend/`)
+- AI SDK: `ai`, Anthropic model provider
+- Observability: Sentry + Diagnostics Mode (local runtime panel)
 
-## React Compiler
+## Quick Start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Frontend only
 
-## Expanding the ESLint configuration
+```bash
+npm install
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-# fresnel
+### Backend
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+### Electron dev
+
+```bash
+npm run electron:dev
+```
+
+## Environment
+
+Key variables used in local development:
+
+- `VITE_API_URL` (frontend -> backend URL)
+- `FRONTEND_URL` (backend CORS origin)
+- `MONGODB_URI` (backend persistence)
+- `ANTHROPIC_API_KEY` (review/chat)
+- Sentry variables (`SENTRY_DSN`, release/env tags)
+
+Use `.env.example` as baseline and adjust for local/dev/prod workflows.
+
+## App Surfaces
+
+- `/app` inbox for open PRs + issues
+- `/app/:repoId/:prNumber` pull request review workspace
+- `/app/:repoId/issues/:issueNumber` issue detail + timeline + action composer
+
+## Diagnostics Mode
+
+Diagnostics Mode is a runtime panel for debugging and incident triage.
+
+- Toggle button in shared header
+- Shortcut: `Cmd/Ctrl + Shift + D`
+- Captures client events by category (`network`, `review`, `operations`, etc.)
+- Polls backend request sample (`GET /api/diagnostics`)
+- Exports filtered event payload to JSON
+
+See [DIAGNOSTICS_MODE.md](./DIAGNOSTICS_MODE.md) for details.
+
+## Scripts
+
+Top-level scripts:
+
+- `npm run dev`
+- `npm run build`
+- `npm run preview`
+- `npm run electron:dev`
+- `npm run electron:build`
+
+Backend scripts (run in `backend/`):
+
+- `npm run dev`
+- `npm run build`
+- `npm run start`
+
+## Notes for Contributors
+
+- Prefer React Query cache invalidation over ad-hoc local fetch state.
+- Keep issue/PR navigation transitions explicit; route changes are a major UX path.
+- Avoid logging sensitive token-like payload fields in backend logs.
+- Keep instrumentation additive and low-overhead.
+
+## License
+
+No license file is currently defined in this repository.
