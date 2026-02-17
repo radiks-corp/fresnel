@@ -12,7 +12,7 @@ import go from 'react-syntax-highlighter/dist/esm/languages/hljs/go'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkEmoji from 'remark-emoji'
-import { CaretDown, CaretRight, Check, MagnifyingGlass, File, Folder, FolderOpen, Funnel } from '@phosphor-icons/react'
+import { ArrowLeft, CaretDown, CaretRight, Check, MagnifyingGlass, File, Folder, FolderOpen, Funnel, SpinnerGap } from '@phosphor-icons/react'
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
@@ -21,6 +21,7 @@ import { usePRDiff } from '../hooks/usePRDiff'
 import { usePRDetails } from '../hooks/usePRDetails'
 import { usePRTimeline } from '../hooks/usePRTimeline'
 import { useSidebarContext } from '../contexts/SidebarContext'
+import { useDiagnosticTrackers } from '../hooks/useDiagnostics'
 import InlineCommentEditor from '../components/InlineCommentEditor'
 import OnboardingModal from '../components/OnboardingModal'
 import '../app.css'
@@ -168,16 +169,29 @@ function AppPage() {
   const [collapsedFolders, setCollapsedFolders] = useState({})
   const [selectedExtensions, setSelectedExtensions] = useState({})
   const [hideViewedFiles, setHideViewedFiles] = useState(false)
+  const [showSubmitDropdown, setShowSubmitDropdown] = useState(false)
+  const [submitComment, setSubmitComment] = useState('')
+  const [reviewType, setReviewType] = useState('comment')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState(null)
   
   const { user, isAuthenticated, loading, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const { prNumber: urlPrNumber } = useParams()
   const { setSidebarData, selectedRepo } = useSidebarContext()
+  const { record, startSpan, endSpan } = useDiagnosticTrackers()
   
   // Track app page view on mount
   useEffect(() => {
     trackEvent('Page Viewed', { page: 'app' })
+    record({
+      category: 'navigation',
+      level: 'info',
+      action: 'page-viewed',
+      message: 'PR review page opened',
+      tags: { page: 'app' },
+    })
   }, [])
 
   // --- Data fetching via react-query hooks ---
@@ -211,8 +225,31 @@ function AppPage() {
 
   // Reset viewed files when diff changes
   useEffect(() => {
+    const spanId = startSpan('diff-parse-cycle', {
+      category: 'ui',
+      tags: { hasDiff: !!diff, bytes: diff?.length || 0 },
+    })
     setViewedFiles({})
+    endSpan(spanId, {
+      category: 'ui',
+      message: 'Diff view state reset',
+      tags: { fileCount: parsedFiles.length },
+    })
   }, [diff])
+
+  useEffect(() => {
+    if (!selectedPR || !selectedRepo) return
+    record({
+      category: 'navigation',
+      level: 'info',
+      action: 'pr-selected',
+      message: `Selected PR #${selectedPR.number}`,
+      tags: {
+        repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
+        state: selectedPR.state,
+      },
+    })
+  }, [selectedPR?.number, selectedRepo?.id])
 
   const parsedFiles = useMemo(() => parseDiff(diff), [diff])
   const viewedCount = Object.values(viewedFiles).filter(Boolean).length
@@ -241,24 +278,29 @@ function AppPage() {
   }
 
   const handleJumpToLine = useCallback((filePath, lineNumber) => {
-    // Switch to files tab
     setActiveTab('files')
-    
-    // Expand the file if collapsed
     setCollapsedFiles(prev => ({ ...prev, [filePath]: false }))
-    
-    // Wait for DOM to update, then scroll to line
+
     setTimeout(() => {
-      const lineEl = document.querySelector(`tr[data-file="${filePath}"][data-line="${lineNumber}"]`)
-      if (lineEl) {
-        lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        // Highlight the line briefly
-        lineEl.classList.add('highlight-jump')
-        setTimeout(() => lineEl.classList.remove('highlight-jump'), 2000)
-      } else {
-        // Fallback: scroll to the file
-        scrollToFile(filePath)
+      const lineEl =
+        document.querySelector(`tr[data-file="${filePath}"][data-new-line="${lineNumber}"]`) ||
+        document.querySelector(`tr[data-file="${filePath}"][data-line="${lineNumber}"]`)
+
+      if (!lineEl) { scrollToFile(filePath); return }
+
+      // Scroll only the diff container so headers stay fixed
+      const container = lineEl.closest('.diff-content')
+      if (container) {
+        const rect = lineEl.getBoundingClientRect()
+        const cRect = container.getBoundingClientRect()
+        container.scrollTo({ top: rect.top - cRect.top + container.scrollTop - cRect.height / 2, behavior: 'smooth' })
       }
+
+      // Flash highlight (remove + reflow lets it re-trigger on repeat clicks)
+      lineEl.classList.remove('highlight-jump')
+      void lineEl.offsetWidth
+      lineEl.classList.add('highlight-jump')
+      setTimeout(() => lineEl.classList.remove('highlight-jump'), 2000)
     }, 100)
   }, [])
 
@@ -329,6 +371,69 @@ function AppPage() {
     setCommentEditorOpen(null)
     trackEvent('Inline Comment Submitted', { file: fileName, line: lineNum, type })
   }, [])
+
+  const handleSubmitReview = async () => {
+    if (!owner || !repoName || !prNumber) return
+    
+    const token = localStorage.getItem('github_pat')
+    if (!token) return
+
+    setIsSubmitting(true)
+    setSubmitError(null)
+
+    try {
+      const eventMap = {
+        'comment': 'COMMENT',
+        'approve': 'APPROVE',
+        'request_changes': 'REQUEST_CHANGES'
+      }
+
+      const comments = pendingComments.map(comment => ({
+        path: comment.path,
+        line: comment.line,
+        body: comment.body
+      }))
+
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/${repoName}/pulls/${prNumber}/reviews`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            body: submitComment || (reviewType === 'request_changes' ? 'Changes requested.' : undefined),
+            event: eventMap[reviewType],
+            comments: comments.length > 0 ? comments : undefined
+          })
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to submit review')
+      }
+
+      trackEvent('Review Submitted to GitHub', {
+        repo: `${owner}/${repoName}`,
+        pr_number: prNumber,
+        review_type: reviewType,
+        comments_count: comments.length,
+      })
+
+      setShowSubmitDropdown(false)
+      setSubmitComment('')
+      setReviewType('comment')
+      setPendingComments([])
+    } catch (err) {
+      setSubmitError(err.message)
+      trackEvent('Review Submit Failed', { error: err.message })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const toggleFolder = (folderPath) => {
     setCollapsedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))
@@ -496,6 +601,12 @@ function AppPage() {
   return (
     <div className="app-page">
       <div className="tabs-bar">
+        <button className="tabs-back-btn" onClick={() => navigate('/app')}>
+          <ArrowLeft size={16} weight="bold" /> Back
+        </button>
+
+        <div className="tabs-bar-divider" />
+
         <Popover className="header-selector">
           <PopoverButton className="header-selector-trigger">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="header-selector-icon">
@@ -564,6 +675,95 @@ function AppPage() {
         >
           Files changed <span className="tab-count">{parsedFiles.length}</span>
         </button>
+
+        <div className="tabs-bar-spacer" />
+
+        {selectedPR && (
+          <div className="submit-review-container">
+            <button 
+              className="submit-review-header-btn"
+              onClick={() => setShowSubmitDropdown(!showSubmitDropdown)}
+            >
+              Submit review
+              <CaretDown size={12} weight="bold" />
+            </button>
+
+            {showSubmitDropdown && (
+              <div className="submit-review-dropdown">
+                <div className="submit-review-dropdown-header">
+                  <span>Finish your review</span>
+                  <button className="submit-review-dropdown-close" onClick={() => setShowSubmitDropdown(false)}>
+                    &times;
+                  </button>
+                </div>
+                <div className="submit-review-dropdown-body">
+                  <textarea
+                    className="submit-review-textarea"
+                    placeholder="Leave a comment"
+                    value={submitComment}
+                    onChange={(e) => setSubmitComment(e.target.value)}
+                  />
+                  <div className="submit-review-options">
+                    <label className={`submit-review-option ${reviewType === 'comment' ? 'selected' : ''}`}>
+                      <input type="radio" name="headerReviewType" value="comment"
+                        checked={reviewType === 'comment'}
+                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'comment' }) }}
+                      />
+                      <span className="submit-review-radio" />
+                      <div className="submit-review-option-content">
+                        <span className="submit-review-option-title">Comment</span>
+                        <span className="submit-review-option-desc">Submit general feedback without explicit approval.</span>
+                      </div>
+                    </label>
+                    <label className={`submit-review-option ${reviewType === 'approve' ? 'selected' : ''}`}>
+                      <input type="radio" name="headerReviewType" value="approve"
+                        checked={reviewType === 'approve'}
+                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'approve' }) }}
+                      />
+                      <span className="submit-review-radio" />
+                      <div className="submit-review-option-content">
+                        <span className="submit-review-option-title">Approve</span>
+                        <span className="submit-review-option-desc">Submit feedback and approve merging these changes.</span>
+                      </div>
+                    </label>
+                    <label className={`submit-review-option ${reviewType === 'request_changes' ? 'selected' : ''}`}>
+                      <input type="radio" name="headerReviewType" value="request_changes"
+                        checked={reviewType === 'request_changes'}
+                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'request_changes' }) }}
+                      />
+                      <span className="submit-review-radio" />
+                      <div className="submit-review-option-content">
+                        <span className="submit-review-option-title">Request changes</span>
+                        <span className="submit-review-option-desc">Submit feedback suggesting changes.</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                <div className="submit-review-dropdown-footer">
+                  <button 
+                    className="submit-review-cancel-btn" 
+                    onClick={() => { setShowSubmitDropdown(false); trackEvent('Review Submit Cancelled') }}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="submit-review-submit-btn"
+                    onClick={handleSubmitReview}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? <SpinnerGap size={16} className="spinning" /> : 'Submit review'}
+                  </button>
+                </div>
+                {submitError && (
+                  <div className="submit-review-error">
+                    {submitError}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={`main-with-sidebar ${activeTab === 'files' ? 'has-sidebar' : ''}`}>
@@ -787,6 +987,7 @@ function AppPage() {
                                     className={`diff-line ${line.type}`}
                                     data-file={file.fileName}
                                     data-line={lineNum || ''}
+                                    data-new-line={line.newNum || ''}
                                   >
                                     <td className="line-num old">{line.oldNum || ''}</td>
                                     <td 
@@ -863,7 +1064,7 @@ function AppPage() {
                                                     <PopoverButton className="pending-comment-menu-btn">
                                                       ···
                                                     </PopoverButton>
-                                                    <PopoverPanel className="pending-comment-dropdown">
+                                                    <PopoverPanel anchor="bottom end" className="pending-comment-dropdown">
                                                       {({ close }) => (
                                                         <>
                                                           <button 
@@ -925,7 +1126,7 @@ function AppPage() {
             </div>
           ) : (
             <div className="empty-state">
-              {pullRequests.length === 0 ? 'No open pull requests' : 'Select a PR to view changes'}
+              {pullRequests.length === 0 ? 'No pull requests assigned to you.' : 'Select a PR to view changes'}
             </div>
           )}
         </main>

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { githubFetch, RateLimitError } from '../hooks/useGitHubAPI'
+import { recordDiagnosticEvent, startDiagnosticSpan, endDiagnosticSpan } from './diagnosticsStore'
 
 /**
  * Global Zustand store for planned GitHub operations.
@@ -26,6 +27,14 @@ export const useOperationsStore = create((set, get) => ({
       status: 'pending',
     }
     console.log(`[OperationsStore] Operation added: type=${op.type}, id=${op.id}`)
+    recordDiagnosticEvent({
+      category: 'operations',
+      level: 'info',
+      action: 'operation-queued',
+      message: `Queued ${op.type}`,
+      tags: { type: op.type, repo: op.repo },
+      context: { operationId: op.id, issueNumber: op.issueNumber },
+    })
     set((state) => ({ operations: [...state.operations, op] }))
     return op
   },
@@ -54,6 +63,13 @@ export const useOperationsStore = create((set, get) => ({
 
     updateOperation(operationId, { status: 'executing' })
     console.log(`[OperationsStore] Executing: type=${operation.type}, id=${operationId}`)
+    const spanId = startDiagnosticSpan('operation-execute', {
+      category: 'operations',
+      message: `Executing ${operation.type}`,
+      tags: { type: operation.type, repo: operation.repo },
+      context: { operationId, issueNumber: operation.issueNumber },
+    })
+    const startedAt = performance.now()
 
     try {
       const [owner, repo] = operation.repo.split('/')
@@ -128,6 +144,13 @@ export const useOperationsStore = create((set, get) => ({
 
       console.log(`[OperationsStore] Succeeded: type=${operation.type}, id=${operationId}`)
       updateOperation(operationId, { status: 'success' })
+      endDiagnosticSpan(spanId, {
+        category: 'operations',
+        level: 'info',
+        message: `Operation succeeded: ${operation.type}`,
+        tags: { type: operation.type, ok: true },
+        durationMs: Math.round(performance.now() - startedAt),
+      })
 
       // Remove the completed operation after a short delay for the exit animation
       setTimeout(() => get().removeOperation(operationId), 400)
@@ -146,6 +169,14 @@ export const useOperationsStore = create((set, get) => ({
         status: 'error',
         error: error.message,
         rateLimited: isRateLimit,
+      })
+      endDiagnosticSpan(spanId, {
+        category: 'operations',
+        level: 'error',
+        message: error.message || `Operation failed: ${operation.type}`,
+        tags: { type: operation.type, ok: false, rateLimited: isRateLimit },
+        context: { operationId, errorName: error.name, stack: error.stack },
+        durationMs: Math.round(performance.now() - startedAt),
       })
     }
   },
