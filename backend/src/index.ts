@@ -791,7 +791,7 @@ async function handleChat(req: any, res: any) {
 - \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page). Much faster than search for getting all issues. Supports filtering by state, labels, etc.
 - \`get_issue\`: Get full details for a specific issue by number. No rate limits.
 - \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
-- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
+- \`plan_operation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
 
 **Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search.
 
@@ -870,7 +870,7 @@ When closing issues as duplicates, you MUST follow these rules strictly:
 - \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page, paginated). Much faster and has higher rate limits than search. Supports filtering by state, labels, sort order, etc.
 - \`get_issue\`: Get full details for a specific issue by number. No rate limits. Use this when you need complete details about a specific issue.
 - \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
-- \`planGitHubOperation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
+- \`plan_operation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
 
 **Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search that requires the query syntax.
 
@@ -1132,10 +1132,10 @@ Repository: ${owner}/${repo}`
     },
   })
 
-  // planGitHubOperation is a client-side tool for buffering GitHub API operations
+  // plan_operation is a client-side tool for buffering GitHub API operations
   // Note: This tool has no execute function - it's handled on the frontend
   // The backend provides the schema, and the frontend intercepts the tool call via onToolCall
-  chatTools.planGitHubOperation = {
+  chatTools.plan_operation = {
     description: 'Plan a GitHub API operation to be executed later. The user will review and execute these operations when ready. Use this when the user asks you to perform GitHub operations like adding comments, changing labels, closing issues, reopening issues, etc. You can combine operations — for example, to close an issue as a duplicate, plan a "comment" operation with the duplicate explanation AND a "close_issue" operation on the same issue.',
     inputSchema: z.object({
       operationType: z.enum(['comment', 'set_labels', 'add_labels', 'close_issue', 'reopen_issue']).describe('Type of operation to perform. Use close_issue to close an issue and reopen_issue to reopen it.'),

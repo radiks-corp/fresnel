@@ -278,10 +278,10 @@ export default function UnifiedReview({
       // Check if it's a dynamic tool first for proper type narrowing
       if (toolCall.dynamic) return
       
-      // Handle the planGitHubOperation tool
-      if (toolCall.toolName === 'planGitHubOperation') {
+      // Handle the plan_operation tool
+      if (toolCall.toolName === 'plan_operation') {
         // Log tool call received (no PII - only operation type)
-        console.log(`[UnifiedReview] Tool call received: tool=planGitHubOperation, operationType=${toolCall.input.operationType}`)
+        console.log(`[UnifiedReview] Tool call received: tool=plan_operation, operationType=${toolCall.input.operationType}`)
         
         try {
           const operation = addOperation({
@@ -294,11 +294,11 @@ export default function UnifiedReview({
           })
           
           // Log tool call success (no PII)
-          console.log(`[UnifiedReview] Tool call succeeded: tool=planGitHubOperation, operationId=${operation.id}`)
+          console.log(`[UnifiedReview] Tool call succeeded: tool=plan_operation, operationId=${operation.id}`)
           
           // Return success to the AI without awaiting (to avoid potential deadlocks)
           addToolOutput({
-            tool: 'planGitHubOperation',
+            tool: 'plan_operation',
             toolCallId: toolCall.toolCallId,
             output: {
               success: true,
@@ -308,10 +308,10 @@ export default function UnifiedReview({
           })
         } catch (error) {
           // Log tool call failure (no PII)
-          console.error(`[UnifiedReview] Tool call failed: tool=planGitHubOperation, error=${error.name}`)
+          console.error(`[UnifiedReview] Tool call failed: tool=plan_operation, error=${error.name}`)
           
           addToolOutput({
-            tool: 'planGitHubOperation',
+            tool: 'plan_operation',
             toolCallId: toolCall.toolCallId,
             output: {
               success: false,

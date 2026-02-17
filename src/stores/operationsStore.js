@@ -4,7 +4,7 @@ import { githubFetch, RateLimitError } from '../hooks/useGitHubAPI'
 /**
  * Global Zustand store for planned GitHub operations.
  *
- * Operations are created by the AI chat (planGitHubOperation tool) and can
+ * Operations are created by the AI chat (plan_operation tool) and can
  * be consumed anywhere — the sidebar's OperationsBuffer card or the issue
  * page's comment box.
  */
