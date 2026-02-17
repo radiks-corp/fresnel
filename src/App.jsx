@@ -31,6 +31,7 @@ const isAppSubdomain = typeof window !== 'undefined' && window.location.hostname
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron
 
 function App() {
+  const fallback = <div style={{ padding: 24, fontFamily: 'Barlow, sans-serif' }}>Loading…</div>
   if (isAppSubdomain || isElectron) {
     return (
       <PersistQueryClientProvider
@@ -39,7 +40,7 @@ function App() {
       >
         <AuthProvider>
           <BrowserRouter>
-            <Suspense>
+            <Suspense fallback={fallback}>
               <Routes>
                 <Route path="/" element={<Navigate to="/app" replace />} />
                 <Route element={<AppLayout />}>
@@ -64,7 +65,7 @@ function App() {
     >
       <AuthProvider>
         <BrowserRouter>
-          <Suspense>
+          <Suspense fallback={fallback}>
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route element={<AppLayout />}>

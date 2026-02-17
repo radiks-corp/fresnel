@@ -200,9 +200,24 @@ app.get('/api/inbox/issues', async (req, res) => {
     return res.json([])
   }
 
+  // Validate each repo identifier (owner/repo format)
+  const repoList = repos.split(',')
+  for (const r of repoList) {
+    const parts = r.split('/')
+    if (parts.length !== 2) {
+      return res.status(400).json({ error: `Invalid repo format: "${r}". Expected "owner/repo"` })
+    }
+    try {
+      validateGitHubIdentifier(parts[0], 'repo owner')
+      validateGitHubIdentifier(parts[1], 'repo name')
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message })
+    }
+  }
+
   try {
     // Build repo filter: repo:owner/name+repo:owner2/name2
-    const repoFilter = repos.split(',').map(r => `repo:${r}`).join('+')
+    const repoFilter = repoList.map(r => `repo:${r}`).join('+')
     let searchQuery = `${repoFilter}+type:issue+state:open`
 
     if (q.trim()) {
@@ -248,8 +263,30 @@ app.get('/api/inbox/pulls', async (req, res) => {
     return res.json([])
   }
 
+  // Validate username
   try {
-    const repoFilter = repos.split(',').map(r => `repo:${r}`).join('+')
+    validateGitHubIdentifier(username, 'username')
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  // Validate each repo identifier (owner/repo format)
+  const repoList = repos.split(',')
+  for (const r of repoList) {
+    const parts = r.split('/')
+    if (parts.length !== 2) {
+      return res.status(400).json({ error: `Invalid repo format: "${r}". Expected "owner/repo"` })
+    }
+    try {
+      validateGitHubIdentifier(parts[0], 'repo owner')
+      validateGitHubIdentifier(parts[1], 'repo name')
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message })
+    }
+  }
+
+  try {
+    const repoFilter = repoList.map(r => `repo:${r}`).join('+')
     let searchQuery = `${repoFilter}+type:pr+state:open+review-requested:${username}+-is:draft`
 
     if (q.trim()) {
@@ -639,6 +676,167 @@ app.patch('/api/repos/:owner/:repo/issues/:issue_number', async (req, res) => {
   }
 })
 
+// Set labels on an issue (replaces all existing labels)
+app.put('/api/repos/:owner/:repo/issues/:issue_number/labels', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, issue_number } = req.params
+  const { labels } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(issue_number)) {
+      return res.status(400).json({ error: 'Invalid issue number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!Array.isArray(labels)) {
+    return res.status(400).json({ error: 'labels must be an array of strings' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/labels`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ labels }),
+      }
+    )
+
+    if (!ghRes.ok) {
+      return forwardGitHubError(ghRes, res, 'Failed to set labels')
+    }
+
+    const result = await ghRes.json()
+    res.json(result)
+  } catch (error) {
+    console.error('Failed to set labels:', error)
+    res.status(500).json({ error: 'Failed to set labels' })
+  }
+})
+
+// Add labels to an issue (appends to existing labels)
+app.post('/api/repos/:owner/:repo/issues/:issue_number/labels', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, issue_number } = req.params
+  const { labels } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(issue_number)) {
+      return res.status(400).json({ error: 'Invalid issue number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!Array.isArray(labels)) {
+    return res.status(400).json({ error: 'labels must be an array of strings' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/labels`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ labels }),
+      }
+    )
+
+    if (!ghRes.ok) {
+      return forwardGitHubError(ghRes, res, 'Failed to add labels')
+    }
+
+    const result = await ghRes.json()
+    res.json(result)
+  } catch (error) {
+    console.error('Failed to add labels:', error)
+    res.status(500).json({ error: 'Failed to add labels' })
+  }
+})
+
+// Submit a PR review with inline comments
+app.post('/api/repos/:owner/:repo/pulls/:pull_number/reviews', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, pull_number } = req.params
+  const { event, comments } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!event || typeof event !== 'string') {
+    return res.status(400).json({ error: 'event is required (e.g. "COMMENT", "APPROVE", "REQUEST_CHANGES")' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const reviewBody: Record<string, any> = { event }
+    if (Array.isArray(comments)) {
+      reviewBody.comments = comments
+    }
+
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}/reviews`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reviewBody),
+      }
+    )
+
+    if (!ghRes.ok) {
+      return forwardGitHubError(ghRes, res, 'Failed to submit review')
+    }
+
+    const result = await ghRes.json()
+    res.status(201).json(result)
+  } catch (error) {
+    console.error('Failed to submit PR review:', error)
+    res.status(500).json({ error: 'Failed to submit review' })
+  }
+})
+
 /**
  * Parse a unified diff into file sections
  */
@@ -668,6 +866,41 @@ function parseDiffToFiles(diff: string): { filename: string; content: string; ad
   }
   
   return files
+}
+
+/**
+ * Annotate a raw unified diff with explicit new-file line numbers
+ * so the LLM can reference exact line numbers without mental counting.
+ */
+function annotateDiffWithLineNumbers(rawDiff: string): string {
+  const lines = rawDiff.split('\n')
+  const annotated: string[] = []
+  let newLine = 0
+
+  for (const line of lines) {
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (hunkMatch) {
+      newLine = parseInt(hunkMatch[1], 10)
+      annotated.push(line)
+    } else if (line.startsWith('diff --git') || line.startsWith('---') || line.startsWith('+++') || line.startsWith('index ') || line.startsWith('\\')) {
+      annotated.push(line)
+    } else if (line.startsWith('-')) {
+      // Removed line — no new-file line number
+      annotated.push(`     -| ${line}`)
+    } else if (line.startsWith('+')) {
+      // Added line — show new-file line number
+      const num = String(newLine).padStart(5)
+      annotated.push(`${num}+| ${line}`)
+      newLine++
+    } else {
+      // Context line — show new-file line number
+      const num = String(newLine).padStart(5)
+      annotated.push(`${num} | ${line}`)
+      newLine++
+    }
+  }
+
+  return annotated.join('\n')
 }
 
 /**
@@ -1320,8 +1553,8 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
 ## Available Tools
 
 - \`list_files\`: See all changed files
-- \`read_file\`: Read a file's diff (paginated for large files)
-- \`create_comment\`: Record a review comment for a specific line`
+- \`read_file\`: Read a file's diff (paginated for large files). Lines are annotated with new-file line numbers like \`   42+| +code\` (added) or \`   42 |  code\` (context). Use the number shown before the \`|\` as the \`line\` value in create_comment.
+- \`create_comment\`: Record a review comment for a specific line. The \`line\` must be the new-file line number shown in the annotated diff.`
 
   // Add PR context (truncated to 300 tokens)
   if (prDetails) {
@@ -1367,7 +1600,7 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
 
   const tools = {
     read_file: tool({
-      description: 'Read the diff content for a specific file from the PR. Use this to examine code changes in detail.',
+      description: 'Read the diff content for a specific file from the PR. Each line is prefixed with its new-file line number (e.g. "   42+|" for additions, "   42 |" for context). Use these numbers for the `line` param in create_comment.',
       inputSchema: z.object({
         filename: z.string().describe('The filename to read'),
         page: z.number().describe('Page number (1-indexed). Each page contains ~100 lines.'),
@@ -1382,7 +1615,9 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
           return { error: `File "${filename}" not found.`, available_files: diffFiles.map(f => f.filename).join(', ') }
         }
         
-        const lines = file.content.split('\n')
+        // Annotate diff with explicit new-file line numbers
+        const annotated = annotateDiffWithLineNumbers(file.content)
+        const lines = annotated.split('\n')
         const linesPerPage = 100
         const totalPages = Math.ceil(lines.length / linesPerPage)
         const startLine = (page - 1) * linesPerPage
@@ -1591,6 +1826,273 @@ app.get('/api/repos/:owner/:repo/pulls/:pull_number/timeline', async (req, res) 
   } catch (error) {
     console.error('Failed to fetch timeline:', error)
     res.status(500).json({ error: 'Failed to fetch timeline' })
+  }
+})
+
+// Reply to a PR review comment
+app.post('/api/repos/:owner/:repo/pulls/:pull_number/comments/:comment_id/replies', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, pull_number, comment_id } = req.params
+  const { body } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+    if (!/^\d+$/.test(comment_id)) {
+      return res.status(400).json({ error: 'Invalid comment ID' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!body || typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'Reply body is required' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const replyRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${pull_number}/comments/${comment_id}/replies`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body: body.trim() }),
+      }
+    )
+
+    if (!replyRes.ok) {
+      return forwardGitHubError(replyRes, res, 'Failed to post reply')
+    }
+
+    const reply = await replyRes.json()
+    res.status(201).json(reply)
+  } catch (error) {
+    console.error('Failed to post review comment reply:', error)
+    res.status(500).json({ error: 'Failed to post reply' })
+  }
+})
+
+// Edit a PR review comment
+app.patch('/api/repos/:owner/:repo/pulls/comments/:comment_id', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, comment_id } = req.params
+  const { body } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  if (!body || typeof body !== 'string' || !body.trim()) {
+    return res.status(400).json({ error: 'body is required and must be a non-empty string' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(comment_id)) {
+      return res.status(400).json({ error: 'Invalid comment ID' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const patchRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/comments/${comment_id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body: body.trim() }),
+      }
+    )
+
+    if (!patchRes.ok) {
+      return forwardGitHubError(patchRes, res, 'Failed to update comment')
+    }
+
+    const updated = await patchRes.json()
+    res.json(updated)
+  } catch (error) {
+    console.error('Failed to update review comment:', error)
+    res.status(500).json({ error: 'Failed to update comment' })
+  }
+})
+
+// Delete a PR review comment
+app.delete('/api/repos/:owner/:repo/pulls/comments/:comment_id', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, comment_id } = req.params
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(comment_id)) {
+      return res.status(400).json({ error: 'Invalid comment ID' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const deleteRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/comments/${comment_id}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!deleteRes.ok) {
+      return forwardGitHubError(deleteRes, res, 'Failed to delete comment')
+    }
+
+    res.status(204).send()
+  } catch (error) {
+    console.error('Failed to delete review comment:', error)
+    res.status(500).json({ error: 'Failed to delete comment' })
+  }
+})
+
+// Resolve/unresolve a PR review comment thread (requires GraphQL)
+app.patch('/api/repos/:owner/:repo/pulls/:pull_number/threads/resolve', async (req, res) => {
+  const authHeader = req.headers.authorization
+  const { owner, repo, pull_number } = req.params
+  const { commentDatabaseId, resolved } = req.body
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    validateGitHubIdentifier(owner, 'owner')
+    validateGitHubIdentifier(repo, 'repo')
+    if (!/^\d+$/.test(pull_number)) {
+      return res.status(400).json({ error: 'Invalid pull request number' })
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message })
+  }
+
+  if (!commentDatabaseId || typeof commentDatabaseId !== 'number') {
+    return res.status(400).json({ error: 'commentDatabaseId is required and must be a number' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    // Step 1: Fetch all review threads to find the one containing this comment
+    const threadsQuery = `
+      query($owner: String!, $repo: String!, $prNumber: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $prNumber) {
+            reviewThreads(first: 100) {
+              nodes {
+                id
+                isResolved
+                comments(first: 1) {
+                  nodes {
+                    databaseId
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `
+
+    const threadsRes = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: threadsQuery,
+        variables: { owner, repo, prNumber: parseInt(pull_number) },
+      }),
+    })
+
+    const threadsData: any = await threadsRes.json()
+
+    if (threadsData.errors) {
+      console.error('GraphQL errors:', threadsData.errors)
+      return res.status(500).json({ error: 'Failed to fetch review threads' })
+    }
+
+    const threads = threadsData.data?.repository?.pullRequest?.reviewThreads?.nodes || []
+    const targetThread = threads.find((t: any) =>
+      t.comments?.nodes?.some((c: any) => c.databaseId === commentDatabaseId)
+    )
+
+    if (!targetThread) {
+      return res.status(404).json({ error: 'Review thread not found for this comment' })
+    }
+
+    // Step 2: Resolve or unresolve the thread
+    const mutationName = resolved ? 'resolveReviewThread' : 'unresolveReviewThread'
+    const mutation = `
+      mutation($threadId: ID!) {
+        ${mutationName}(input: {threadId: $threadId}) {
+          thread {
+            id
+            isResolved
+          }
+        }
+      }
+    `
+
+    const mutationRes = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: mutation,
+        variables: { threadId: targetThread.id },
+      }),
+    })
+
+    const mutationData: any = await mutationRes.json()
+
+    if (mutationData.errors) {
+      console.error('GraphQL mutation errors:', mutationData.errors)
+      return res.status(500).json({ error: `Failed to ${resolved ? 'resolve' : 'unresolve'} thread` })
+    }
+
+    const thread = mutationData.data?.[mutationName]?.thread
+    res.json({ success: true, threadId: thread?.id, isResolved: thread?.isResolved })
+  } catch (error) {
+    console.error('Failed to resolve/unresolve review thread:', error)
+    res.status(500).json({ error: 'Failed to update thread resolution' })
   }
 })
 

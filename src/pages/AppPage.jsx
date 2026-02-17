@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter'
 import js from 'react-syntax-highlighter/dist/esm/languages/hljs/javascript'
@@ -12,7 +13,9 @@ import go from 'react-syntax-highlighter/dist/esm/languages/hljs/go'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkEmoji from 'remark-emoji'
-import { CaretDown, CaretRight, Check, MagnifyingGlass, File, Folder, FolderOpen, Funnel } from '@phosphor-icons/react'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
+import { ArrowLeft, CaretDown, CaretRight, Check, CheckCircle, MagnifyingGlass, File, Folder, FolderOpen, Funnel, Pencil, SpinnerGap, Trash } from '@phosphor-icons/react'
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
@@ -20,8 +23,11 @@ import { usePullRequests } from '../hooks/usePullRequests'
 import { usePRDiff } from '../hooks/usePRDiff'
 import { usePRDetails } from '../hooks/usePRDetails'
 import { usePRTimeline } from '../hooks/usePRTimeline'
+import { apiFetch } from '../hooks/useGitHubAPI'
 import { useSidebarContext } from '../contexts/SidebarContext'
+import { useOperationsStore } from '../stores/operationsStore'
 import InlineCommentEditor from '../components/InlineCommentEditor'
+import OpenExternalButton from '../components/OpenExternalButton'
 import OnboardingModal from '../components/OnboardingModal'
 import '../app.css'
 
@@ -159,21 +165,36 @@ function AppPage() {
   })
   const [viewedFiles, setViewedFiles] = useState({})
   const [collapsedFiles, setCollapsedFiles] = useState({})
-  const [pendingComments, setPendingComments] = useState([])
   const [collapsedComments, setCollapsedComments] = useState({})
-  const [editingComment, setEditingComment] = useState(null) // comment id
-  const [commentEditorOpen, setCommentEditorOpen] = useState(null) // { file, line }
+  const [replyingTo, setReplyingTo] = useState(null)
+  const [editingComment, setEditingComment] = useState(null) // pending comment id
+  const [editingReviewComment, setEditingReviewComment] = useState(null) // existing review comment id
+  const [commentEditorOpen, setCommentEditorOpen] = useState(null) // { file, startLine, endLine }
+  const [lineSelection, setLineSelection] = useState(null) // { file, startLine, endLine }
+  const dragRef = useRef(null) // { file, anchorLine } — tracks the mousedown origin
   const [expandedHunks, setExpandedHunks] = useState({})
   const [fileSearchQuery, setFileSearchQuery] = useState('')
   const [collapsedFolders, setCollapsedFolders] = useState({})
   const [selectedExtensions, setSelectedExtensions] = useState({})
   const [hideViewedFiles, setHideViewedFiles] = useState(false)
+  const [showSubmitDropdown, setShowSubmitDropdown] = useState(false)
+  const [submitComment, setSubmitComment] = useState('')
+  const [reviewType, setReviewType] = useState('comment')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState(null)
   
   const { user, isAuthenticated, loading, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { prNumber: urlPrNumber } = useParams()
   const { setSidebarData, selectedRepo } = useSidebarContext()
+  // ── Buffered review comments from the global operations store ──
+  const allOperations = useOperationsStore((s) => s.operations)
+  const addOperation = useOperationsStore((s) => s.addOperation)
+  const updateOperation = useOperationsStore((s) => s.updateOperation)
+  const removeOperation = useOperationsStore((s) => s.removeOperation)
+  const clearReviewComments = useOperationsStore((s) => s.clearReviewComments)
   
   // Track app page view on mount
   useEffect(() => {
@@ -189,6 +210,56 @@ function AppPage() {
   const { data: diff = '', isLoading: loadingDiff } = usePRDiff(owner, repoName, prNumber)
   const { data: prDetails = null, isLoading: loadingTimeline } = usePRDetails(owner, repoName, prNumber)
   const { data: timeline = [] } = usePRTimeline(owner, repoName, prNumber)
+
+  const repoFullName = owner && repoName ? `${owner}/${repoName}` : ''
+  const isOwnPR = !!(user?.login && prDetails?.user?.login && user.login === prDetails.user.login)
+
+  // Derive pending review comments for the current PR from the global store
+  const pendingComments = useMemo(
+    () =>
+      allOperations.filter(
+        (op) =>
+          op.type === 'review_comment' &&
+          op.status === 'pending' &&
+          op.repo === repoFullName &&
+          op.prNumber === Number(prNumber)
+      ),
+    [allOperations, repoFullName, prNumber]
+  )
+
+  // Derive pending replies for the current PR from the global store, grouped by parent comment ID
+  const pendingRepliesByComment = useMemo(() => {
+    const map = {}
+    for (const op of allOperations) {
+      if (
+        op.type === 'review_comment_reply' &&
+        op.status === 'pending' &&
+        op.repo === repoFullName &&
+        op.prNumber === Number(prNumber)
+      ) {
+        if (!map[op.inReplyTo]) map[op.inReplyTo] = []
+        map[op.inReplyTo].push(op)
+      }
+    }
+    return map
+  }, [allOperations, repoFullName, prNumber])
+
+  // Group existing PR review comments from timeline by file path + line number
+  const reviewCommentsByFileLine = useMemo(() => {
+    const map = {}
+    for (const item of timeline) {
+      if (item.type === 'review_comment' && item.path && item.line != null) {
+        const key = `${item.path}:${item.line}`
+        if (!map[key]) map[key] = []
+        map[key].push(item)
+      }
+    }
+    // Sort each group by created_at
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    }
+    return map
+  }, [timeline])
 
   // Reset PR when repo changes
   useEffect(() => {
@@ -241,35 +312,51 @@ function AppPage() {
   }
 
   const handleJumpToLine = useCallback((filePath, lineNumber) => {
-    // Switch to files tab
     setActiveTab('files')
-    
-    // Expand the file if collapsed
     setCollapsedFiles(prev => ({ ...prev, [filePath]: false }))
-    
-    // Wait for DOM to update, then scroll to line
+
     setTimeout(() => {
-      const lineEl = document.querySelector(`tr[data-file="${filePath}"][data-line="${lineNumber}"]`)
-      if (lineEl) {
-        lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        // Highlight the line briefly
-        lineEl.classList.add('highlight-jump')
-        setTimeout(() => lineEl.classList.remove('highlight-jump'), 2000)
-      } else {
-        // Fallback: scroll to the file
-        scrollToFile(filePath)
+      const lineEl =
+        document.querySelector(`tr[data-file="${filePath}"][data-new-line="${lineNumber}"]`) ||
+        document.querySelector(`tr[data-file="${filePath}"][data-line="${lineNumber}"]`)
+
+      if (!lineEl) { scrollToFile(filePath); return }
+
+      // Scroll only the diff container so headers stay fixed
+      const container = lineEl.closest('.diff-content')
+      if (container) {
+        const rect = lineEl.getBoundingClientRect()
+        const cRect = container.getBoundingClientRect()
+        container.scrollTo({ top: rect.top - cRect.top + container.scrollTop - cRect.height / 2, behavior: 'smooth' })
       }
+
+      // Flash highlight (remove + reflow lets it re-trigger on repeat clicks)
+      lineEl.classList.remove('highlight-jump')
+      void lineEl.offsetWidth
+      lineEl.classList.add('highlight-jump')
+      setTimeout(() => lineEl.classList.remove('highlight-jump'), 2000)
     }, 100)
   }, [])
 
   const handleApplyComment = useCallback((comment) => {
-    setPendingComments(prev => {
-      // Avoid duplicates
-      if (prev.some(c => c.id === comment.id)) return prev
-      return [...prev, comment]
+    // Avoid duplicates — check if this comment already exists in the store
+    const existing = allOperations.find(
+      (op) => op.type === 'review_comment' && op.originalId === comment.id
+    )
+    if (existing) return
+
+    addOperation({
+      type: 'review_comment',
+      repo: repoFullName,
+      prNumber: Number(prNumber),
+      originalId: comment.id,
+      path: comment.path,
+      line: comment.line,
+      body: comment.body,
+      severity: comment.severity,
     })
     trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
-  }, [])
+  }, [allOperations, addOperation, repoFullName, prNumber])
 
   // Provide sidebar data via context so the layout-level sidebar can read it
   useEffect(() => {
@@ -277,9 +364,8 @@ function AppPage() {
       onApplyComment: handleApplyComment,
       viewedCount,
       totalFiles: parsedFiles.length,
-      pendingComments,
     })
-  }, [setSidebarData, handleApplyComment, viewedCount, parsedFiles.length, pendingComments])
+  }, [setSidebarData, handleApplyComment, viewedCount, parsedFiles.length])
 
   // Clear sidebar data when leaving this page
   useEffect(() => {
@@ -288,7 +374,6 @@ function AppPage() {
         onApplyComment: null,
         viewedCount: 0,
         totalFiles: 0,
-        pendingComments: [],
       })
     }
   }, [setSidebarData])
@@ -303,32 +388,263 @@ function AppPage() {
     }
   }, [location.state, loadingDiff, parsedFiles, handleJumpToLine, navigate, location.pathname])
 
+  // ── Multi-line selection via the "+" button drag ──
+
+  const handlePlusMouseDown = useCallback((e, fileName, lineNum) => {
+    if (!lineNum) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragRef.current = { file: fileName, anchorLine: lineNum }
+    setLineSelection({ file: fileName, startLine: lineNum, endLine: lineNum })
+    setCommentEditorOpen(null)
+  }, [])
+
+  const handleLineMouseEnter = useCallback((fileName, lineNum) => {
+    if (!dragRef.current || dragRef.current.file !== fileName || !lineNum) return
+    const anchor = dragRef.current.anchorLine
+    setLineSelection({
+      file: fileName,
+      startLine: Math.min(anchor, lineNum),
+      endLine: Math.max(anchor, lineNum),
+    })
+  }, [])
+
+  // On mouse up: finish drag and immediately open the comment editor
+  const handleDragMouseUp = useCallback(() => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    setLineSelection((sel) => {
+      if (!sel) return sel
+      setCommentEditorOpen({ file: sel.file, startLine: sel.startLine, endLine: sel.endLine })
+      trackEvent('Inline Comment Started', { file: sel.file, startLine: sel.startLine, endLine: sel.endLine })
+      return sel
+    })
+  }, [])
+
+  // Global mouseup so releasing anywhere finishes the drag
+  useEffect(() => {
+    const onMouseUp = () => {
+      if (dragRef.current) handleDragMouseUp()
+    }
+    window.addEventListener('mouseup', onMouseUp)
+    return () => window.removeEventListener('mouseup', onMouseUp)
+  }, [handleDragMouseUp])
+
+  const isLineSelected = useCallback((fileName, lineNum) => {
+    if (!lineSelection || lineSelection.file !== fileName || !lineNum) return false
+    return lineNum >= lineSelection.startLine && lineNum <= lineSelection.endLine
+  }, [lineSelection])
+
   const handleEditComment = useCallback((commentId, newBody) => {
-    setPendingComments(prev => prev.map(c => 
-      c.id === commentId ? { ...c, body: newBody } : c
-    ))
+    updateOperation(commentId, { body: newBody })
     setEditingComment(null)
     trackEvent('Inline Comment Edited', { comment_id: commentId })
-  }, [])
+  }, [updateOperation])
 
   const handleDeleteComment = useCallback((commentId) => {
-    setPendingComments(prev => prev.filter(c => c.id !== commentId))
+    removeOperation(commentId)
     trackEvent('Inline Comment Deleted', { comment_id: commentId })
-  }, [])
+  }, [removeOperation])
 
-  const handleInlineCommentSubmit = useCallback(({ body, type }, fileName, lineNum) => {
-    const commentId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const comment = {
-      id: commentId,
+  const handleReplySubmit = useCallback((threadKey, parentCommentId, body) => {
+    if (!body?.trim()) return
+    addOperation({
+      type: 'review_comment_reply',
+      repo: repoFullName,
+      prNumber: Number(prNumber),
+      inReplyTo: parentCommentId,
+      body: body.trim(),
+    })
+    setReplyingTo(null)
+    trackEvent('PR Comment Reply Buffered', { parent_comment_id: parentCommentId })
+  }, [addOperation, repoFullName, prNumber])
+
+  const handleResolveThread = useCallback(async (parentCommentId, resolved) => {
+    if (!owner || !repoName || !prNumber) return
+    try {
+      const res = await apiFetch(
+        `/api/repos/${owner}/${repoName}/pulls/${prNumber}/threads/resolve`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ commentDatabaseId: parentCommentId, resolved }),
+        }
+      )
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ['timeline', owner, repoName, prNumber] })
+        trackEvent('PR Thread Resolved', { parent_comment_id: parentCommentId, resolved })
+      }
+    } catch (err) {
+      console.error('Failed to resolve thread:', err)
+    }
+  }, [owner, repoName, prNumber, queryClient])
+
+  const handleDeleteReviewComment = useCallback(async (commentId) => {
+    if (!owner || !repoName) return
+    try {
+      const res = await apiFetch(
+        `/api/repos/${owner}/${repoName}/pulls/comments/${commentId}`,
+        { method: 'DELETE' }
+      )
+      if (res.ok || res.status === 204) {
+        queryClient.invalidateQueries({ queryKey: ['timeline', owner, repoName, prNumber] })
+        trackEvent('PR Comment Deleted', { comment_id: commentId })
+      }
+    } catch (err) {
+      console.error('Failed to delete review comment:', err)
+    }
+  }, [owner, repoName, prNumber, queryClient])
+
+  const handleEditReviewComment = useCallback(async (commentId, newBody) => {
+    if (!owner || !repoName) return
+    try {
+      const res = await apiFetch(
+        `/api/repos/${owner}/${repoName}/pulls/comments/${commentId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: newBody }),
+        }
+      )
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ['timeline', owner, repoName, prNumber] })
+        setEditingReviewComment(null)
+        trackEvent('PR Comment Edited', { comment_id: commentId })
+      }
+    } catch (err) {
+      console.error('Failed to edit review comment:', err)
+    }
+  }, [owner, repoName, prNumber, queryClient])
+
+  const handleInlineCommentSubmit = useCallback(({ body, type }, fileName, startLine, endLine) => {
+    addOperation({
+      type: 'review_comment',
+      repo: repoFullName,
+      prNumber: Number(prNumber),
       path: fileName,
-      line: lineNum,
+      line: endLine,
+      startLine: startLine !== endLine ? startLine : undefined,
       body,
       severity: 'comment',
-    }
-    setPendingComments(prev => [...prev, comment])
+    })
     setCommentEditorOpen(null)
-    trackEvent('Inline Comment Submitted', { file: fileName, line: lineNum, type })
-  }, [])
+    setLineSelection(null)
+    trackEvent('Inline Comment Submitted', { file: fileName, startLine, endLine, type })
+  }, [addOperation, repoFullName, prNumber])
+
+  const handleSubmitReview = async () => {
+    if (!owner || !repoName || !prNumber) return
+    
+    const token = localStorage.getItem('github_pat')
+    if (!token) return
+
+    setIsSubmitting(true)
+    setSubmitError(null)
+
+    try {
+      const eventMap = {
+        'comment': 'COMMENT',
+        'approve': 'APPROVE',
+        'request_changes': 'REQUEST_CHANGES'
+      }
+
+      const comments = pendingComments.map(comment => {
+        const c = {
+          path: comment.path,
+          line: comment.line,
+          side: 'RIGHT',
+          body: comment.body,
+        }
+        if (comment.startLine) {
+          c.start_line = comment.startLine
+          c.start_side = 'RIGHT'
+        }
+        return c
+      })
+
+      // Gather pending replies
+      const pendingReplies = allOperations.filter(
+        op =>
+          op.type === 'review_comment_reply' &&
+          op.status === 'pending' &&
+          op.repo === repoFullName &&
+          op.prNumber === Number(prNumber)
+      )
+
+      // GitHub API requires body for COMMENT and REQUEST_CHANGES events
+      const hasContent = submitComment || comments.length > 0 || pendingReplies.length > 0
+      if (!hasContent && reviewType !== 'approve') {
+        throw new Error('Please enter a comment or add inline review comments before submitting.')
+      }
+
+      // Only call the review API if there's a body or comments to submit
+      // (replies are posted separately and don't need a review wrapper)
+      const needsReview = submitComment || comments.length > 0 || reviewType === 'approve' || reviewType === 'request_changes'
+
+      if (needsReview) {
+        const reviewBody = submitComment
+          || (reviewType === 'request_changes' ? 'Changes requested.' : undefined)
+
+        const response = await fetch(
+          `https://api.github.com/repos/${owner}/${repoName}/pulls/${prNumber}/reviews`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              body: reviewBody,
+              event: eventMap[reviewType],
+              comments: comments.length > 0 ? comments : undefined
+            })
+          }
+        )
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.message || 'Failed to submit review')
+        }
+      }
+
+      // Post pending replies individually (GitHub review API doesn't support in_reply_to)
+      for (const reply of pendingReplies) {
+        try {
+          await apiFetch(
+            `/api/repos/${owner}/${repoName}/pulls/${prNumber}/comments/${reply.inReplyTo}/replies`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ body: reply.body }),
+            }
+          )
+          removeOperation(reply.id)
+        } catch (replyErr) {
+          console.error('Failed to post reply:', replyErr)
+        }
+      }
+
+      trackEvent('Review Submitted to GitHub', {
+        repo: `${owner}/${repoName}`,
+        pr_number: prNumber,
+        review_type: reviewType,
+        comments_count: comments.length,
+        replies_count: pendingReplies.length,
+      })
+
+      setShowSubmitDropdown(false)
+      setSubmitComment('')
+      setReviewType('comment')
+      clearReviewComments(repoFullName, prNumber)
+      queryClient.invalidateQueries({ queryKey: ['timeline', owner, repoName, prNumber] })
+    } catch (err) {
+      setSubmitError(err.message)
+      trackEvent('Review Submit Failed', { error: err.message })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const toggleFolder = (folderPath) => {
     setCollapsedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))
@@ -464,7 +780,7 @@ function AppPage() {
             <span className="timeline-time">{formatTimeAgo(item.created_at)}</span>
             {item.body && (
               <div className="comment-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{item.body}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{item.body}</ReactMarkdown>
               </div>
             )}
           </div>
@@ -484,7 +800,7 @@ function AppPage() {
             )}
           </div>
           <div className="comment-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{item.body || ''}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{item.body || ''}</ReactMarkdown>
           </div>
         </div>
       )
@@ -496,6 +812,12 @@ function AppPage() {
   return (
     <div className="app-page">
       <div className="tabs-bar">
+        <button className="tabs-back-btn" onClick={() => navigate('/app')}>
+          <ArrowLeft size={16} weight="bold" /> Back
+        </button>
+
+        <div className="tabs-bar-divider" />
+
         <Popover className="header-selector">
           <PopoverButton className="header-selector-trigger">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="header-selector-icon">
@@ -564,6 +886,113 @@ function AppPage() {
         >
           Files changed <span className="tab-count">{parsedFiles.length}</span>
         </button>
+
+        <div className="tabs-bar-spacer" />
+
+        {selectedPR && owner && repoName && (
+          <OpenExternalButton
+            type="pr"
+            owner={owner}
+            repo={repoName}
+            number={selectedPR.number}
+          />
+        )}
+
+        {selectedPR && (
+          <div className="submit-review-container">
+            <button 
+              className="submit-review-header-btn"
+              onClick={() => {
+                if (!showSubmitDropdown && isOwnPR && (reviewType === 'approve' || reviewType === 'request_changes')) {
+                  setReviewType('comment')
+                }
+                setShowSubmitDropdown(!showSubmitDropdown)
+              }}
+            >
+              Submit review
+              <CaretDown size={12} weight="bold" />
+            </button>
+
+            {showSubmitDropdown && (
+              <div className="submit-review-dropdown">
+                <div className="submit-review-dropdown-header">
+                  <span>Finish your review</span>
+                  <button className="submit-review-dropdown-close" onClick={() => setShowSubmitDropdown(false)}>
+                    &times;
+                  </button>
+                </div>
+                <div className="submit-review-dropdown-body">
+                  <textarea
+                    className="submit-review-textarea"
+                    placeholder="Leave a comment"
+                    value={submitComment}
+                    onChange={(e) => setSubmitComment(e.target.value)}
+                  />
+                  <div className="submit-review-options">
+                    <label className={`submit-review-option ${reviewType === 'comment' ? 'selected' : ''}`}>
+                      <input type="radio" name="headerReviewType" value="comment"
+                        checked={reviewType === 'comment'}
+                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'comment' }) }}
+                      />
+                      <span className="submit-review-radio" />
+                      <div className="submit-review-option-content">
+                        <span className="submit-review-option-title">Comment</span>
+                        <span className="submit-review-option-desc">Submit general feedback without explicit approval.</span>
+                      </div>
+                    </label>
+                    <label className={`submit-review-option ${isOwnPR ? 'disabled' : ''} ${reviewType === 'approve' ? 'selected' : ''}`}>
+                      <input type="radio" name="headerReviewType" value="approve"
+                        checked={reviewType === 'approve'}
+                        disabled={isOwnPR}
+                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'approve' }) }}
+                      />
+                      <span className="submit-review-radio" />
+                      <div className="submit-review-option-content">
+                        <span className="submit-review-option-title">Approve</span>
+                        <span className="submit-review-option-desc">Submit feedback and approve merging these changes.</span>
+                      </div>
+                      {isOwnPR && <span className="submit-review-tooltip">Pull request authors can't approve their own pull requests.</span>}
+                    </label>
+                    <label className={`submit-review-option ${isOwnPR ? 'disabled' : ''} ${reviewType === 'request_changes' ? 'selected' : ''}`}>
+                      <input type="radio" name="headerReviewType" value="request_changes"
+                        checked={reviewType === 'request_changes'}
+                        disabled={isOwnPR}
+                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'request_changes' }) }}
+                      />
+                      <span className="submit-review-radio" />
+                      <div className="submit-review-option-content">
+                        <span className="submit-review-option-title">Request changes</span>
+                        <span className="submit-review-option-desc">Submit feedback suggesting changes.</span>
+                      </div>
+                      {isOwnPR && <span className="submit-review-tooltip">Pull request authors can't request changes on their own pull requests.</span>}
+                    </label>
+                  </div>
+                </div>
+                <div className="submit-review-dropdown-footer">
+                  <button 
+                    className="submit-review-cancel-btn" 
+                    onClick={() => { setShowSubmitDropdown(false); trackEvent('Review Submit Cancelled') }}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="submit-review-submit-btn"
+                    onClick={handleSubmitReview}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? <SpinnerGap size={16} className="spinning" /> : 'Submit review'}
+                  </button>
+                </div>
+                {submitError && (
+                  <div className="submit-review-error">
+                    {submitError}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={`main-with-sidebar ${activeTab === 'files' ? 'has-sidebar' : ''}`}>
@@ -720,7 +1149,7 @@ function AppPage() {
                         )}
                       </div>
                       <div className="comment-body markdown-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{prDetails.body}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{prDetails.body}</ReactMarkdown>
                       </div>
                     </div>
                   )}
@@ -781,19 +1210,45 @@ function AppPage() {
                               const lineComments = pendingComments.filter(
                                 c => c.path === file.fileName && c.line === lineNum
                               )
+                              // Check if this line falls within any multi-line comment's range
+                              const isInCommentRange = pendingComments.some(
+                                c => c.path === file.fileName && c.startLine && lineNum >= c.startLine && lineNum <= c.line
+                              )
+                              const existingComments = line.newNum
+                                ? (reviewCommentsByFileLine[`${file.fileName}:${line.newNum}`] || [])
+                                : []
+                              const selected = isLineSelected(file.fileName, line.newNum)
                               return (
                                 <React.Fragment key={lineIdx}>
                                   <tr 
-                                    className={`diff-line ${line.type}`}
+                                    className={`diff-line ${line.type}${selected ? ' line-selected' : ''}${isInCommentRange ? ' line-commented' : ''}`}
                                     data-file={file.fileName}
                                     data-line={lineNum || ''}
+                                    data-new-line={line.newNum || ''}
+                                    onMouseEnter={() => handleLineMouseEnter(file.fileName, line.newNum)}
                                   >
                                     <td className="line-num old">{line.oldNum || ''}</td>
-                                    <td 
-                                      className="line-num new clickable"
-                                      onClick={() => { if (lineNum) { setCommentEditorOpen({ file: file.fileName, line: lineNum }); trackEvent('Inline Comment Started', { file: file.fileName, line: lineNum }) } }}
-                                      title={lineNum ? 'Click to add a comment' : ''}
-                                    >
+                                    <td className="line-num new has-plus-btn">
+                                      {line.newNum && !commentEditorOpen && (() => {
+                                        const isFirst = selected && lineSelection?.startLine === line.newNum
+                                        const isLast = selected && lineSelection?.endLine === line.newNum
+                                        const isMid = selected && !isFirst && !isLast
+                                        const isMultiLine = lineSelection && lineSelection.startLine !== lineSelection.endLine
+                                        return (
+                                          <>
+                                            {isMid && isMultiLine && (
+                                              <span className="line-drag-pipe" />
+                                            )}
+                                            {(!isMid || !isMultiLine) && (
+                                              <button
+                                                className={`line-plus-btn${isFirst && isMultiLine ? ' is-first' : ''}${isLast && isMultiLine ? ' is-last' : ''}`}
+                                                onMouseDown={(e) => handlePlusMouseDown(e, file.fileName, line.newNum)}
+                                                tabIndex={-1}
+                                              >+</button>
+                                            )}
+                                          </>
+                                        )
+                                      })()}
                                       {line.newNum || ''}
                                     </td>
                                     <td className="line-content">
@@ -845,7 +1300,7 @@ function AppPage() {
                                                 size={14} 
                                                 className={`pending-comment-caret ${collapsedComments[comment.id] ? '' : 'expanded'}`}
                                               />
-                                              <span>Comment on line <strong>R{comment.line}</strong></span>
+                                              <span>Comment on {comment.startLine ? <>lines <strong>R{comment.startLine}</strong> to <strong>R{comment.line}</strong></> : <>line <strong>R{comment.line}</strong></>}</span>
                                             </div>
                                             <div className="pending-comment-body">
                                               <img 
@@ -863,7 +1318,7 @@ function AppPage() {
                                                     <PopoverButton className="pending-comment-menu-btn">
                                                       ···
                                                     </PopoverButton>
-                                                    <PopoverPanel className="pending-comment-dropdown">
+                                                    <PopoverPanel anchor="bottom end" className="pending-comment-dropdown">
                                                       {({ close }) => (
                                                         <>
                                                           <button 
@@ -885,7 +1340,7 @@ function AppPage() {
                                                   </div>
                                                 </div>
                                                 <div className="pending-comment-text">
-                                                  <ReactMarkdown>{comment.body}</ReactMarkdown>
+                                                  <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body}</ReactMarkdown>
                                                 </div>
                                               </div>
                                             </div>
@@ -895,7 +1350,158 @@ function AppPage() {
                                       </td>
                                     </tr>
                                   ))}
-                                  {commentEditorOpen && commentEditorOpen.file === file.fileName && commentEditorOpen.line === lineNum && (
+                                  {existingComments.length > 0 && (
+                                    <tr className="pr-comment-row">
+                                      <td colSpan={3}>
+                                        <div className="pr-comment-thread">
+                                          <div className="pr-comment-thread-header">
+                                            <CaretRight 
+                                              size={14} 
+                                              className={`pending-comment-caret ${collapsedComments[`pr-${file.fileName}-${line.newNum}`] ? '' : 'expanded'}`}
+                                            />
+                                            <span
+                                              className="pr-comment-thread-label"
+                                              onClick={() => setCollapsedComments(prev => ({
+                                                ...prev,
+                                                [`pr-${file.fileName}-${line.newNum}`]: !prev[`pr-${file.fileName}-${line.newNum}`]
+                                              }))}
+                                            >
+                                              {existingComments.length} {existingComments.length === 1 ? 'comment' : 'comments'} on line <strong>R{line.newNum}</strong>
+                                            </span>
+                                          </div>
+                                          {!collapsedComments[`pr-${file.fileName}-${line.newNum}`] && (() => {
+                                            const threadKey = `pr-${file.fileName}-${line.newNum}`
+                                            const parentCommentId = existingComments[0].id
+                                            const threadPendingReplies = pendingRepliesByComment[parentCommentId] || []
+                                            return (
+                                            <div className="pr-comment-thread-body">
+                                              {existingComments.map(rc => (
+                                                <div key={rc.id} className="pr-comment-item">
+                                                  {editingReviewComment === rc.id ? (
+                                                    <InlineCommentEditor
+                                                      avatar={rc.user?.avatar_url}
+                                                      userName={rc.user?.login}
+                                                      fileName={file.fileName}
+                                                      lineNum={rc.line || line.newNum}
+                                                      initialBody={rc.body || ''}
+                                                      editMode
+                                                      onSubmit={({ body }) => handleEditReviewComment(rc.id, body)}
+                                                      onCancel={() => setEditingReviewComment(null)}
+                                                    />
+                                                  ) : (
+                                                  <>
+                                                  <img 
+                                                    className="pr-comment-avatar" 
+                                                    src={rc.user?.avatar_url || 'https://avatars.githubusercontent.com/u/0?v=4'} 
+                                                    alt={rc.user?.login || 'User'}
+                                                  />
+                                                  <div className="pr-comment-content">
+                                                    <div className="pr-comment-meta">
+                                                      <span className="pr-comment-author">{rc.user?.login}</span>
+                                                      <span className="pr-comment-time">{formatTimeAgo(rc.created_at)}</span>
+                                                      {rc.author_association && rc.author_association !== 'NONE' && (
+                                                        <span className="pr-comment-badge">{rc.author_association.toLowerCase()}</span>
+                                                      )}
+                                                      {rc.user?.login === user?.login && (
+                                                        <Popover className="pr-comment-menu">
+                                                          <PopoverButton className="pr-comment-menu-btn">···</PopoverButton>
+                                                          <PopoverPanel anchor="bottom end" className="pr-comment-dropdown">
+                                                            {({ close }) => (
+                                                              <>
+                                                                <button
+                                                                  className="pr-comment-dropdown-item"
+                                                                  onClick={() => { setEditingReviewComment(rc.id); close() }}
+                                                                >
+                                                                  <Pencil size={14} /> Edit
+                                                                </button>
+                                                                <button
+                                                                  className="pr-comment-dropdown-item danger"
+                                                                  onClick={() => { handleDeleteReviewComment(rc.id); close() }}
+                                                                >
+                                                                  <Trash size={14} /> Delete
+                                                                </button>
+                                                              </>
+                                                            )}
+                                                          </PopoverPanel>
+                                                        </Popover>
+                                                      )}
+                                                    </div>
+                                                    <div className="pr-comment-text">
+                                                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{rc.body || ''}</ReactMarkdown>
+                                                    </div>
+                                                  </div>
+                                                  </>
+                                                  )}
+                                                </div>
+                                              ))}
+                                              {threadPendingReplies.map(reply => (
+                                                <div key={reply.id} className="pr-comment-item pending">
+                                                  <img
+                                                    className="pr-comment-avatar"
+                                                    src={user?.avatar_url || 'https://avatars.githubusercontent.com/u/0?v=4'}
+                                                    alt={user?.name || 'User'}
+                                                  />
+                                                  <div className="pr-comment-content">
+                                                    <div className="pr-comment-meta">
+                                                      <span className="pr-comment-author">{user?.name || user?.login}</span>
+                                                      <span className="pr-comment-time">now</span>
+                                                      <span className="pending-comment-badge">Pending</span>
+                                                      <Popover className="pr-comment-menu">
+                                                        <PopoverButton className="pr-comment-menu-btn">···</PopoverButton>
+                                                        <PopoverPanel anchor="bottom end" className="pr-comment-dropdown">
+                                                          {({ close }) => (
+                                                            <button
+                                                              className="pr-comment-dropdown-item danger"
+                                                              onClick={() => { removeOperation(reply.id); close() }}
+                                                            >
+                                                              <Trash size={14} /> Delete
+                                                            </button>
+                                                          )}
+                                                        </PopoverPanel>
+                                                      </Popover>
+                                                    </div>
+                                                    <div className="pr-comment-text">
+                                                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{reply.body}</ReactMarkdown>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                              <div className="pr-comment-reply-box">
+                                                {replyingTo === threadKey ? (
+                                                  <InlineCommentEditor
+                                                    avatar={user?.avatar_url}
+                                                    userName={user?.name || user?.login}
+                                                    fileName={file.fileName}
+                                                    lineNum={line.newNum}
+                                                    replyMode
+                                                    onSubmit={({ body }) => handleReplySubmit(threadKey, parentCommentId, body)}
+                                                    onCancel={() => setReplyingTo(null)}
+                                                  />
+                                                ) : (
+                                                  <button
+                                                    className="pr-reply-trigger"
+                                                    onClick={() => setReplyingTo(threadKey)}
+                                                  >
+                                                    Write a reply...
+                                                  </button>
+                                                )}
+                                              </div>
+                                              <div className="pr-comment-thread-footer">
+                                                <button
+                                                  className="pr-resolve-btn"
+                                                  onClick={() => handleResolveThread(parentCommentId, true)}
+                                                >
+                                                  <CheckCircle size={16} /> Resolve comment
+                                                </button>
+                                              </div>
+                                            </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {commentEditorOpen && commentEditorOpen.file === file.fileName && commentEditorOpen.endLine === lineNum && (
                                     <tr className="pending-comment-row">
                                       <td colSpan={3}>
                                         <div className="pending-comment-wrapper">
@@ -903,9 +1509,10 @@ function AppPage() {
                                             avatar={user?.avatar_url}
                                             userName={user?.name || user?.login}
                                             fileName={file.fileName}
-                                            lineNum={lineNum}
-                                            onSubmit={(data) => handleInlineCommentSubmit(data, file.fileName, lineNum)}
-                                            onCancel={() => { setCommentEditorOpen(null); trackEvent('Inline Comment Cancelled', { file: file.fileName, line: lineNum }) }}
+                                            lineNum={commentEditorOpen.endLine}
+                                            startLine={commentEditorOpen.startLine !== commentEditorOpen.endLine ? commentEditorOpen.startLine : null}
+                                            onSubmit={(data) => handleInlineCommentSubmit(data, file.fileName, commentEditorOpen.startLine, commentEditorOpen.endLine)}
+                                            onCancel={() => { setCommentEditorOpen(null); setLineSelection(null); trackEvent('Inline Comment Cancelled', { file: file.fileName, startLine: commentEditorOpen.startLine, endLine: commentEditorOpen.endLine }) }}
                                             hasExistingComments={pendingComments.length > 0}
                                           />
                                         </div>
@@ -925,7 +1532,7 @@ function AppPage() {
             </div>
           ) : (
             <div className="empty-state">
-              {pullRequests.length === 0 ? 'No open pull requests' : 'Select a PR to view changes'}
+              {pullRequests.length === 0 ? 'No pull requests assigned to you.' : 'Select a PR to view changes'}
             </div>
           )}
         </main>

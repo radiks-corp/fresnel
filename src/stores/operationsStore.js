@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { githubFetch, RateLimitError } from '../hooks/useGitHubAPI'
+import { apiFetch, RateLimitError } from '../hooks/useGitHubAPI'
 
 /**
  * Global Zustand store for planned GitHub operations.
@@ -60,8 +60,8 @@ export const useOperationsStore = create((set, get) => ({
 
       switch (operation.type) {
         case 'comment': {
-          await githubFetch(
-            `https://api.github.com/repos/${owner}/${repo}/issues/${operation.issueNumber}/comments`,
+          await apiFetch(
+            `/api/repos/${owner}/${repo}/issues/${operation.issueNumber}/comments`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -71,8 +71,8 @@ export const useOperationsStore = create((set, get) => ({
           break
         }
         case 'set_labels': {
-          await githubFetch(
-            `https://api.github.com/repos/${owner}/${repo}/issues/${operation.issueNumber}/labels`,
+          await apiFetch(
+            `/api/repos/${owner}/${repo}/issues/${operation.issueNumber}/labels`,
             {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
@@ -82,8 +82,8 @@ export const useOperationsStore = create((set, get) => ({
           break
         }
         case 'add_labels': {
-          await githubFetch(
-            `https://api.github.com/repos/${owner}/${repo}/issues/${operation.issueNumber}/labels`,
+          await apiFetch(
+            `/api/repos/${owner}/${repo}/issues/${operation.issueNumber}/labels`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -97,8 +97,8 @@ export const useOperationsStore = create((set, get) => ({
           const newState = operation.type === 'close_issue' ? 'closed' : 'open'
           // Post an optional closing/reopening comment first
           if (operation.body?.trim()) {
-            await githubFetch(
-              `https://api.github.com/repos/${owner}/${repo}/issues/${operation.issueNumber}/comments`,
+            await apiFetch(
+              `/api/repos/${owner}/${repo}/issues/${operation.issueNumber}/comments`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -112,12 +112,47 @@ export const useOperationsStore = create((set, get) => ({
           } else if (operation.type === 'reopen_issue') {
             patchBody.state_reason = 'reopened'
           }
-          await githubFetch(
-            `https://api.github.com/repos/${owner}/${repo}/issues/${operation.issueNumber}`,
+          await apiFetch(
+            `/api/repos/${owner}/${repo}/issues/${operation.issueNumber}`,
             {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(patchBody),
+            }
+          )
+          break
+        }
+        case 'review_comment': {
+          const comment = {
+            path: operation.path,
+            line: operation.line,
+            side: 'RIGHT',
+            body: operation.body,
+          }
+          if (operation.startLine) {
+            comment.start_line = operation.startLine
+            comment.start_side = 'RIGHT'
+          }
+          await apiFetch(
+            `/api/repos/${owner}/${repo}/pulls/${operation.prNumber}/reviews`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event: 'COMMENT',
+                comments: [comment],
+              }),
+            }
+          )
+          break
+        }
+        case 'review_comment_reply': {
+          await apiFetch(
+            `/api/repos/${owner}/${repo}/pulls/${operation.prNumber}/comments/${operation.inReplyTo}/replies`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ body: operation.body }),
             }
           )
           break
@@ -150,12 +185,111 @@ export const useOperationsStore = create((set, get) => ({
     }
   },
 
+  /** Execute all pending review comments for a specific PR as a single review batch. */
+  executeReviewBatch: async (repoFullName, prNumber) => {
+    const { operations, updateOperation } = get()
+    const reviewOps = operations.filter(
+      (op) =>
+        op.type === 'review_comment' &&
+        op.status === 'pending' &&
+        op.repo === repoFullName &&
+        op.prNumber === Number(prNumber)
+    )
+
+    if (reviewOps.length === 0) return
+
+    for (const op of reviewOps) {
+      updateOperation(op.id, { status: 'executing' })
+    }
+
+    const [owner, repo] = repoFullName.split('/')
+
+    const comments = reviewOps.map((op) => {
+      const c = {
+        path: op.path,
+        line: op.line,
+        side: 'RIGHT',
+        body: op.body,
+      }
+      if (op.startLine) {
+        c.start_line = op.startLine
+        c.start_side = 'RIGHT'
+      }
+      return c
+    })
+
+    try {
+      await apiFetch(
+        `/api/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'COMMENT',
+            comments,
+          }),
+        }
+      )
+
+      console.log(`[OperationsStore] Review batch succeeded: ${reviewOps.length} comment(s) on ${repoFullName}#${prNumber}`)
+      for (const op of reviewOps) {
+        updateOperation(op.id, { status: 'success' })
+        setTimeout(() => get().removeOperation(op.id), 400)
+      }
+
+      const { onOperationSuccess } = get()
+      if (onOperationSuccess) {
+        onOperationSuccess(reviewOps[0])
+      }
+    } catch (error) {
+      const isRateLimit = error instanceof RateLimitError
+      console.error(`[OperationsStore] Review batch failed: ${repoFullName}#${prNumber}, error=${error.message}`)
+      for (const op of reviewOps) {
+        updateOperation(op.id, {
+          status: 'error',
+          error: error.message,
+          rateLimited: isRateLimit,
+        })
+      }
+    }
+  },
+
   /** Execute all pending operations in sequence with a small delay between each. */
   executeAll: async () => {
     const pending = get().operations.filter((op) => op.status === 'pending')
-    for (let i = 0; i < pending.length; i++) {
-      const op = pending[i]
-      // Check if a previous operation was rate-limited; stop early to avoid more 429s
+
+    // Batch review comments by PR and submit as single reviews
+    const reviewBatches = new Map()
+    for (const op of pending) {
+      if (op.type === 'review_comment') {
+        const key = `${op.repo}#${op.prNumber}`
+        if (!reviewBatches.has(key)) {
+          reviewBatches.set(key, { repo: op.repo, prNumber: op.prNumber })
+        }
+      }
+    }
+
+    for (const [, { repo, prNumber }] of reviewBatches) {
+      await get().executeReviewBatch(repo, prNumber)
+
+      // Check if the batch was rate-limited — bail out
+      const batchOps = get().operations.filter(
+        (o) => o.type === 'review_comment' && o.repo === repo && o.prNumber === Number(prNumber)
+      )
+      if (batchOps.some((o) => o.rateLimited)) {
+        console.warn('[OperationsStore] Rate limited — stopping remaining operations')
+        return
+      }
+
+      await new Promise((r) => setTimeout(r, 500))
+    }
+
+    // Execute remaining non-review-comment operations
+    const remaining = get().operations.filter(
+      (op) => op.status === 'pending' && op.type !== 'review_comment'
+    )
+    for (let i = 0; i < remaining.length; i++) {
+      const op = remaining[i]
       const current = get().operations.find((o) => o.id === op.id)
       if (current?.status !== 'pending') continue
 
@@ -169,7 +303,7 @@ export const useOperationsStore = create((set, get) => ({
       }
 
       // Small delay between operations to stay under rate limits
-      if (i < pending.length - 1) {
+      if (i < remaining.length - 1) {
         await new Promise((r) => setTimeout(r, 500))
       }
     }
@@ -197,5 +331,30 @@ export const useOperationsStore = create((set, get) => ({
         op.repo === repoFullName &&
         op.issueNumber === Number(issueNumber)
     )
+  },
+
+  /** Get all pending review comments for a specific PR. */
+  getReviewCommentsForPR: (repoFullName, prNumber) => {
+    return get().operations.filter(
+      (op) =>
+        op.type === 'review_comment' &&
+        op.status === 'pending' &&
+        op.repo === repoFullName &&
+        op.prNumber === Number(prNumber)
+    )
+  },
+
+  /** Remove all pending review comments for a specific PR. */
+  clearReviewComments: (repoFullName, prNumber) => {
+    set((state) => ({
+      operations: state.operations.filter(
+        (op) =>
+          !(
+            op.type === 'review_comment' &&
+            op.repo === repoFullName &&
+            op.prNumber === Number(prNumber)
+          )
+      ),
+    }))
   },
 }))

@@ -4,6 +4,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkEmoji from 'remark-emoji'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import { ArrowLeft, X, Robot, Tag } from '@phosphor-icons/react'
 import { useSidebarContext } from '../contexts/SidebarContext'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -11,6 +13,7 @@ import { apiFetch } from '../hooks/useGitHubAPI'
 import { useIssueDetails } from '../hooks/useIssueDetails'
 import { useIssueTimeline } from '../hooks/useIssueTimeline'
 import { useOperationsStore } from '../stores/operationsStore'
+import OpenExternalButton from '../components/OpenExternalButton'
 import './IssuePage.css'
 
 function formatTimeAgo(dateString) {
@@ -225,7 +228,7 @@ function IssueComment({ comment }) {
           )}
         </div>
         <div className="issue-comment-body markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{comment.body || ''}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body || ''}</ReactMarkdown>
         </div>
       </div>
     </div>
@@ -507,7 +510,7 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
         ) : (
           <div className="ibox-preview markdown-body">
             {hasBody ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{body}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{body}</ReactMarkdown>
             ) : (
               <span className="ibox-preview-empty">Nothing to preview</span>
             )}
@@ -594,7 +597,6 @@ export default function IssuePage() {
   const navigate = useNavigate()
   const { selectedRepo } = useSidebarContext()
   const { user } = useAuth()
-
   const owner = selectedRepo?.owner?.login
   const repoName = selectedRepo?.name
 
@@ -608,6 +610,7 @@ export default function IssuePage() {
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     )
   }, [timeline])
+
 
   if (!selectedRepo) {
     return (
@@ -650,6 +653,12 @@ export default function IssuePage() {
           </h1>
           <div className="issue-header-meta">
             <IssueStateBadge state={issue.state} />
+            <OpenExternalButton
+              type="issue"
+              owner={owner}
+              repo={repoName}
+              number={issueNumber}
+            />
           </div>
         </div>
 
@@ -668,7 +677,7 @@ export default function IssuePage() {
                   )}
                 </div>
                 <div className="issue-comment-body markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{issue.body}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{issue.body}</ReactMarkdown>
                 </div>
               </div>
             </div>

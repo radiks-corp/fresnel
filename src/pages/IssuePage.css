@@ -9,6 +9,12 @@
   overflow-y: auto;
 }
 
+body:has(.diag-panel) .issue-page {
+  background:
+    radial-gradient(circle at top right, rgba(94, 160, 255, 0.08), transparent 38%),
+    #fff;
+}
+
 .issue-page-inner {
   display: grid;
   grid-template-columns: 1fr 256px;
@@ -17,6 +23,11 @@
   width: 100%;
   margin: 0 auto;
   padding: 0 32px;
+}
+
+body:has(.diag-panel) .issue-page-inner {
+  max-width: 1360px;
+  padding-right: 42px;
 }
 
 .issue-page-loading,
@@ -149,6 +160,11 @@
   position: relative;
   flex: 1;
   min-width: 0;
+}
+
+body:has(.diag-panel) .issue-comment-card {
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
 
 /* Speech bubble caret pointing to avatar */

@@ -8,6 +8,23 @@
   font-family: 'Barlow', sans-serif;
 }
 
+.inbox-layout::after {
+  content: '';
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: none;
+  transition: background 0.2s ease;
+}
+
+body:has(.diag-panel) .inbox-layout::after {
+  background: #5ea0ff;
+}
+
 
 /* Container */
 .inbox-container {
@@ -183,6 +200,15 @@
 
 .inbox-row:hover {
   background: #f6f8fa;
+}
+
+body:has(.diag-panel) .inbox-row {
+  transition: background 0.12s, outline-color 0.12s;
+}
+
+body:has(.diag-panel) .inbox-row:hover {
+  outline: 1px solid #c6dcff;
+  outline-offset: -1px;
 }
 
 .inbox-row-icon {

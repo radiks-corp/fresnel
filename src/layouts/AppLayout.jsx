@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { useParams, useNavigate, Outlet } from 'react-router-dom'
+import { useParams, useNavigate, Outlet, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { MagnifyingGlass, Folder } from '@phosphor-icons/react'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -21,6 +21,7 @@ const defaultSidebarData = {
 
 export default function AppLayout() {
   const { repoId, prNumber } = useParams()
+  const location = useLocation()
   const { user } = useAuth()
   const { data: repos = [] } = useRepos()
   const { isConnected } = useBackendHealth()
@@ -138,6 +139,15 @@ export default function AppLayout() {
   // Global Cmd+K: tap-to-open, hold+repeat to quick-switch (like Cmd+Tab)
   useEffect(() => {
     const handleKeyDown = (e) => {
+      const target = e.target
+      const isEditable = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      )
+
+      if (isEditable) return
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         kPressCountRef.current++
@@ -176,7 +186,7 @@ export default function AppLayout() {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('keyup', handleKeyUp)
     }
-  }, [])
+  }, [location.pathname])
 
   // Click outside to close
   useEffect(() => {
