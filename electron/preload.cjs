@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Update the GitHub token and restart polling
   updateToken: (token) => ipcRenderer.send('update-token', token),
   
+  // Open a URL in the user's default system browser
+  openExternal: (url) => ipcRenderer.send('open-external', url),
+
   // Check if running in Electron
   isElectron: true,
 });

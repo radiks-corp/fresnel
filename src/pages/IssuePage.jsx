@@ -4,6 +4,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkEmoji from 'remark-emoji'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import { ArrowLeft, X, Robot, Tag } from '@phosphor-icons/react'
 import { useSidebarContext } from '../contexts/SidebarContext'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -11,7 +13,7 @@ import { apiFetch } from '../hooks/useGitHubAPI'
 import { useIssueDetails } from '../hooks/useIssueDetails'
 import { useIssueTimeline } from '../hooks/useIssueTimeline'
 import { useOperationsStore } from '../stores/operationsStore'
-import { useDiagnosticTrackers } from '../hooks/useDiagnostics'
+import OpenExternalButton from '../components/OpenExternalButton'
 import './IssuePage.css'
 
 function formatTimeAgo(dateString) {
@@ -226,7 +228,7 @@ function IssueComment({ comment }) {
           )}
         </div>
         <div className="issue-comment-body markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{comment.body || ''}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body || ''}</ReactMarkdown>
         </div>
       </div>
     </div>
@@ -253,7 +255,6 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
   const textareaRef = useRef(null)
   const queryClient = useQueryClient()
   const prefillAppliedRef = useRef(false)
-  const { record, startSpan, endSpan } = useDiagnosticTrackers()
 
   // ── Planned operations from the Zustand store ──
   const repoFullName = owner && repo ? `${owner}/${repo}` : ''
@@ -351,10 +352,6 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
   const handleComment = async () => {
     if (!hasBody || submitting) return
     setSubmitting(true)
-    const spanId = startSpan('issue-comment-submit', {
-      category: 'issue',
-      tags: { owner, repo, issueNumber },
-    })
     try {
       await apiFetch(`/api/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
         method: 'POST',
@@ -366,19 +363,8 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
       flushPendingOps()
       queryClient.invalidateQueries({ queryKey: ['issueTimeline', owner, repo, issueNumber] })
       queryClient.invalidateQueries({ queryKey: ['issueDetails', owner, repo, issueNumber] })
-      endSpan(spanId, {
-        category: 'issue',
-        message: 'Issue comment submitted',
-        tags: { status: 'success' },
-      })
     } catch (err) {
       console.error('Failed to post comment:', err)
-      endSpan(spanId, {
-        category: 'issue',
-        level: 'error',
-        message: err.message || 'Issue comment failed',
-        tags: { status: 'error' },
-      })
     } finally {
       setSubmitting(false)
     }
@@ -386,10 +372,6 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
 
   const handleStateChange = async (newState) => {
     setSubmitting(true)
-    const spanId = startSpan('issue-state-change', {
-      category: 'issue',
-      tags: { owner, repo, issueNumber, newState },
-    })
     try {
       if (hasBody) {
         await apiFetch(`/api/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
@@ -414,19 +396,8 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
       flushPendingOps()
       queryClient.invalidateQueries({ queryKey: ['issueTimeline', owner, repo, issueNumber] })
       queryClient.invalidateQueries({ queryKey: ['issueDetails', owner, repo, issueNumber] })
-      endSpan(spanId, {
-        category: 'issue',
-        message: 'Issue state updated',
-        tags: { status: 'success', newState },
-      })
     } catch (err) {
       console.error('Failed to update issue:', err)
-      endSpan(spanId, {
-        category: 'issue',
-        level: 'error',
-        message: err.message || 'Issue state update failed',
-        tags: { status: 'error', newState },
-      })
     } finally {
       setSubmitting(false)
     }
@@ -539,7 +510,7 @@ function IssueCommentBox({ owner, repo, issueNumber, issueState, userAvatar }) {
         ) : (
           <div className="ibox-preview markdown-body">
             {hasBody ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{body}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{body}</ReactMarkdown>
             ) : (
               <span className="ibox-preview-empty">Nothing to preview</span>
             )}
@@ -626,8 +597,6 @@ export default function IssuePage() {
   const navigate = useNavigate()
   const { selectedRepo } = useSidebarContext()
   const { user } = useAuth()
-  const { record } = useDiagnosticTrackers()
-
   const owner = selectedRepo?.owner?.login
   const repoName = selectedRepo?.name
 
@@ -642,16 +611,6 @@ export default function IssuePage() {
     )
   }, [timeline])
 
-  useEffect(() => {
-    if (!selectedRepo || !issueNumber) return
-    record({
-      category: 'navigation',
-      level: 'info',
-      action: 'issue-page-open',
-      message: `Opened issue ${issueNumber}`,
-      tags: { repo: `${selectedRepo.owner.login}/${selectedRepo.name}` },
-    })
-  }, [selectedRepo?.id, issueNumber, record])
 
   if (!selectedRepo) {
     return (
@@ -694,6 +653,12 @@ export default function IssuePage() {
           </h1>
           <div className="issue-header-meta">
             <IssueStateBadge state={issue.state} />
+            <OpenExternalButton
+              type="issue"
+              owner={owner}
+              repo={repoName}
+              number={issueNumber}
+            />
           </div>
         </div>
 
@@ -712,7 +677,7 @@ export default function IssuePage() {
                   )}
                 </div>
                 <div className="issue-comment-body markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]}>{issue.body}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{issue.body}</ReactMarkdown>
                 </div>
               </div>
             </div>
