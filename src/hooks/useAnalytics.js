@@ -1,4 +1,5 @@
 import mixpanel from 'mixpanel-browser'
+import { recordDiagnosticEvent } from '../stores/diagnosticsStore'
 
 const MIXPANEL_TOKEN = 'd0150ef1b0448f98628e6a57401437f0'
 const isDev = import.meta.env.DEV
@@ -59,6 +60,13 @@ export function resetAnalytics() {
  * Track an event with optional properties.
  */
 export function trackEvent(eventName, properties = {}) {
+  recordDiagnosticEvent({
+    category: 'analytics',
+    level: 'info',
+    action: eventName,
+    message: 'Analytics event tracked',
+    tags: properties,
+  })
   if (isDev) return
   mixpanel.track(eventName, properties)
 }

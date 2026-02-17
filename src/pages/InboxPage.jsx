@@ -5,6 +5,7 @@ import { trackEvent } from '../hooks/useAnalytics'
 import { useRepos } from '../hooks/useRepos'
 import { useInboxIssues, useInboxPulls } from '../hooks/useInboxItems'
 import { useSidebarContext } from '../contexts/SidebarContext'
+import { useDiagnosticTrackers } from '../hooks/useDiagnostics'
 import { MagnifyingGlass, GitPullRequest, CircleDashed } from '@phosphor-icons/react'
 import OnboardingModal from '../components/OnboardingModal'
 import './InboxPage.css'
@@ -44,15 +45,28 @@ export default function InboxPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
 
-  // Debounce search query so we don't fire a request on every keystroke
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery])
-
   const { user, loading } = useAuth()
   const navigate = useNavigate()
   const { selectedRepo } = useSidebarContext()
+  const { record, startSpan, endSpan } = useDiagnosticTrackers()
+
+  // Debounce search query so we don't fire a request on every keystroke
+  useEffect(() => {
+    const spanId = startSpan('inbox-search-debounce', {
+      category: 'ui',
+      tags: { tab: activeTab, queryLength: searchQuery.length },
+    })
+
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300)
+    return () => {
+      clearTimeout(timer)
+      endSpan(spanId, {
+        category: 'ui',
+        message: 'Inbox search debounce completed',
+        tags: { tab: activeTab },
+      })
+    }
+  }, [searchQuery, activeTab, startSpan, endSpan])
 
   // Data fetching via react-query hooks (search is handled server-side)
   const { data: repos = [], isLoading: loadingRepos } = useRepos()
@@ -65,6 +79,13 @@ export default function InboxPage() {
 
   const handlePRClick = (pr) => {
     if (!selectedRepo) return
+    record({
+      category: 'navigation',
+      level: 'info',
+      action: 'inbox-open-pr',
+      message: `Opened PR ${pr.number}`,
+      tags: { repo: `${selectedRepo.owner.login}/${selectedRepo.name}` },
+    })
     trackEvent('Inbox PR Clicked', {
       repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
       pr_number: pr.number,
@@ -74,6 +95,13 @@ export default function InboxPage() {
 
   const handleIssueClick = (issue) => {
     if (!selectedRepo) return
+    record({
+      category: 'navigation',
+      level: 'info',
+      action: 'inbox-open-issue',
+      message: `Opened issue ${issue.number}`,
+      tags: { repo: `${selectedRepo.owner.login}/${selectedRepo.name}` },
+    })
     trackEvent('Inbox Issue Clicked', {
       repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
       issue_number: issue.number,
@@ -92,8 +120,9 @@ export default function InboxPage() {
         <div className="inbox-tabs-bar">
           <button
             className={`tab ${activeTab === 'pulls' ? 'active' : ''}`}
-            onClick={() => { 
+            onClick={() => {
               setActiveTab('pulls')
+              record({ category: 'ui', level: 'info', action: 'inbox-tab', tags: { tab: 'pulls' } })
               localStorage.setItem('inboxActiveTab', 'pulls')
               trackEvent('Inbox Tab Changed', { tab: 'pulls' })
             }}
@@ -102,8 +131,9 @@ export default function InboxPage() {
           </button>
           <button
             className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
-            onClick={() => { 
+            onClick={() => {
               setActiveTab('issues')
+              record({ category: 'ui', level: 'info', action: 'inbox-tab', tags: { tab: 'issues' } })
               localStorage.setItem('inboxActiveTab', 'issues')
               trackEvent('Inbox Tab Changed', { tab: 'issues' })
             }}

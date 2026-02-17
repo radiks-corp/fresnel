@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { recordDiagnosticEvent } from '../stores/diagnosticsStore'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
@@ -24,11 +25,24 @@ export function useBackendHealth() {
         if (mounted) {
           setIsConnected(response.ok)
           setLastChecked(new Date())
+          recordDiagnosticEvent({
+            category: 'backend',
+            level: response.ok ? 'info' : 'warn',
+            action: 'backend-health-check',
+            message: response.ok ? 'Backend health check passed' : 'Backend health check failed',
+            tags: { status: response.status },
+          })
         }
       } catch (error) {
         if (mounted) {
           setIsConnected(false)
           setLastChecked(new Date())
+          recordDiagnosticEvent({
+            category: 'backend',
+            level: 'error',
+            action: 'backend-health-check-error',
+            message: error?.message || 'Backend health check threw',
+          })
         }
       }
 

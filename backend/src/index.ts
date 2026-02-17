@@ -52,6 +52,44 @@ const PORT = process.env.PORT || 3001
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fresnel'
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const DIAGNOSTICS_BUFFER_SIZE = Number(process.env.DIAGNOSTICS_BUFFER_SIZE || 500)
+
+type DiagnosticsEntry = {
+  id: string
+  ts: number
+  method: string
+  path: string
+  status: number
+  durationMs: number
+  query: Record<string, string | string[]>
+  requestId: string
+  userAgent: string
+}
+
+const diagnosticsBuffer: DiagnosticsEntry[] = []
+
+function toSafeQuery(raw: any): Record<string, string | string[]> {
+  const next: Record<string, string | string[]> = {}
+  for (const [key, value] of Object.entries(raw || {})) {
+    if (/token|secret|auth|password/i.test(key)) {
+      next[key] = '[redacted]'
+      continue
+    }
+    if (Array.isArray(value)) {
+      next[key] = value.map(v => String(v).slice(0, 80))
+      continue
+    }
+    next[key] = String(value).slice(0, 120)
+  }
+  return next
+}
+
+function addDiagnosticEntry(entry: DiagnosticsEntry) {
+  diagnosticsBuffer.push(entry)
+  if (diagnosticsBuffer.length > DIAGNOSTICS_BUFFER_SIZE) {
+    diagnosticsBuffer.splice(0, diagnosticsBuffer.length - DIAGNOSTICS_BUFFER_SIZE)
+  }
+}
 
 /**
  * Validate and sanitize GitHub owner/repo names to prevent injection attacks
@@ -110,6 +148,27 @@ app.use(cors({
   credentials: true
 }))
 app.use(express.json())
+app.use((req, res, next) => {
+  const startedAt = Date.now()
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  res.setHeader('X-Request-Id', requestId)
+
+  res.on('finish', () => {
+    addDiagnosticEntry({
+      id: crypto.randomUUID(),
+      ts: Date.now(),
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      query: toSafeQuery(req.query),
+      requestId,
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
+    })
+  })
+
+  next()
+})
 
 // Health check
 app.get('/health', (req, res) => {
@@ -123,6 +182,27 @@ app.get('/health', (req, res) => {
 // API routes
 app.get('/api', (req, res) => {
   res.json({ message: 'Fresnel API' })
+})
+
+app.get('/api/diagnostics', (req, res) => {
+  const sample = diagnosticsBuffer.slice(-200).reverse()
+  const errorCount = sample.filter((entry) => entry.status >= 400).length
+  const avgDurationMs = sample.length
+    ? Math.round(sample.reduce((sum, entry) => sum + entry.durationMs, 0) / sample.length)
+    : 0
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    count: sample.length,
+    errorCount,
+    avgDurationMs,
+    entries: sample,
+  })
+})
+
+app.delete('/api/diagnostics', (req, res) => {
+  diagnosticsBuffer.splice(0, diagnosticsBuffer.length)
+  res.json({ ok: true, clearedAt: new Date().toISOString() })
 })
 
 // Get current user (validate token)
@@ -668,6 +748,41 @@ function parseDiffToFiles(diff: string): { filename: string; content: string; ad
   }
   
   return files
+}
+
+/**
+ * Annotate a raw unified diff with explicit new-file line numbers
+ * so the LLM can reference exact line numbers without mental counting.
+ */
+function annotateDiffWithLineNumbers(rawDiff: string): string {
+  const lines = rawDiff.split('\n')
+  const annotated: string[] = []
+  let newLine = 0
+
+  for (const line of lines) {
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (hunkMatch) {
+      newLine = parseInt(hunkMatch[1], 10)
+      annotated.push(line)
+    } else if (line.startsWith('diff --git') || line.startsWith('---') || line.startsWith('+++') || line.startsWith('index ') || line.startsWith('\\')) {
+      annotated.push(line)
+    } else if (line.startsWith('-')) {
+      // Removed line — no new-file line number
+      annotated.push(`     -| ${line}`)
+    } else if (line.startsWith('+')) {
+      // Added line — show new-file line number
+      const num = String(newLine).padStart(5)
+      annotated.push(`${num}+| ${line}`)
+      newLine++
+    } else {
+      // Context line — show new-file line number
+      const num = String(newLine).padStart(5)
+      annotated.push(`${num} | ${line}`)
+      newLine++
+    }
+  }
+
+  return annotated.join('\n')
 }
 
 /**
@@ -1320,8 +1435,8 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
 ## Available Tools
 
 - \`list_files\`: See all changed files
-- \`read_file\`: Read a file's diff (paginated for large files)
-- \`create_comment\`: Record a review comment for a specific line`
+- \`read_file\`: Read a file's diff (paginated for large files). Lines are annotated with new-file line numbers like \`   42+| +code\` (added) or \`   42 |  code\` (context). Use the number shown before the \`|\` as the \`line\` value in create_comment.
+- \`create_comment\`: Record a review comment for a specific line. The \`line\` must be the new-file line number shown in the annotated diff.`
 
   // Add PR context (truncated to 300 tokens)
   if (prDetails) {
@@ -1367,7 +1482,7 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
 
   const tools = {
     read_file: tool({
-      description: 'Read the diff content for a specific file from the PR. Use this to examine code changes in detail.',
+      description: 'Read the diff content for a specific file from the PR. Each line is prefixed with its new-file line number (e.g. "   42+|" for additions, "   42 |" for context). Use these numbers for the `line` param in create_comment.',
       inputSchema: z.object({
         filename: z.string().describe('The filename to read'),
         page: z.number().describe('Page number (1-indexed). Each page contains ~100 lines.'),
@@ -1382,7 +1497,9 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
           return { error: `File "${filename}" not found.`, available_files: diffFiles.map(f => f.filename).join(', ') }
         }
         
-        const lines = file.content.split('\n')
+        // Annotate diff with explicit new-file line numbers
+        const annotated = annotateDiffWithLineNumbers(file.content)
+        const lines = annotated.split('\n')
         const linesPerPage = 100
         const totalPages = Math.ceil(lines.length / linesPerPage)
         const startLine = (page - 1) * linesPerPage

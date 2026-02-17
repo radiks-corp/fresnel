@@ -1,13 +1,15 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { useParams, useNavigate, Outlet } from 'react-router-dom'
+import { useParams, useNavigate, Outlet, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { MagnifyingGlass, Folder } from '@phosphor-icons/react'
+import { MagnifyingGlass, Folder, Bug } from '@phosphor-icons/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { useRepos } from '../hooks/useRepos'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useBackendHealth } from '../hooks/useBackendHealth'
 import { useOperationsStore } from '../stores/operationsStore'
+import { useDiagnostics, useDiagnosticTrackers } from '../hooks/useDiagnostics'
 import ReviewSidebar from '../components/ReviewSidebar'
+import DiagnosticsPanel from '../components/DiagnosticsPanel'
 import SidebarContext from '../contexts/SidebarContext'
 import { StatusBanner } from '../components/StatusBanner'
 import '../app.css'
@@ -21,6 +23,7 @@ const defaultSidebarData = {
 
 export default function AppLayout() {
   const { repoId, prNumber } = useParams()
+  const location = useLocation()
   const { user } = useAuth()
   const { data: repos = [] } = useRepos()
   const { isConnected } = useBackendHealth()
@@ -38,6 +41,8 @@ export default function AppLayout() {
   const highlightedIndexRef = useRef(0)
   const sortedFilteredReposRef = useRef([])
   const handleRepoSelectRef = useRef(null)
+  const { enabled: diagnosticsEnabled, togglePanel, isPanelOpen } = useDiagnostics()
+  const { record, startSpan, endSpan } = useDiagnosticTrackers()
 
   const setSidebarData = useCallback((data) => {
     setSidebarDataState(prev => ({ ...prev, ...data }))
@@ -72,6 +77,24 @@ export default function AppLayout() {
     })
     return () => setOnOperationSuccess(null)
   }, [queryClient, setOnOperationSuccess])
+
+  useEffect(() => {
+    const spanId = startSpan('route-navigation', {
+      category: 'navigation',
+      tags: { path: location.pathname },
+      context: { search: location.search },
+    })
+
+    const timer = window.setTimeout(() => {
+      endSpan(spanId, {
+        category: 'navigation',
+        message: 'Route transition settled',
+        tags: { path: location.pathname, panelOpen: isPanelOpen },
+      })
+    }, 50)
+
+    return () => window.clearTimeout(timer)
+  }, [location.pathname, location.search, startSpan, endSpan, isPanelOpen])
 
   // Filter repos for omnibar search, with selected repo pinned to top
   const sortedFilteredRepos = useMemo(() => {
@@ -138,6 +161,28 @@ export default function AppLayout() {
   // Global Cmd+K: tap-to-open, hold+repeat to quick-switch (like Cmd+Tab)
   useEffect(() => {
     const handleKeyDown = (e) => {
+      const target = e.target
+      const isEditable = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      )
+
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        togglePanel()
+        record({
+          category: 'diagnostics',
+          level: 'info',
+          action: 'panel-toggle-shortcut',
+          message: 'Diagnostics panel toggled from keyboard shortcut',
+          tags: { path: location.pathname },
+        })
+        return
+      }
+
+      if (isEditable) return
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         kPressCountRef.current++
@@ -176,7 +221,7 @@ export default function AppLayout() {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('keyup', handleKeyUp)
     }
-  }, [])
+  }, [location.pathname, record, togglePanel])
 
   // Click outside to close
   useEffect(() => {
@@ -293,6 +338,15 @@ export default function AppLayout() {
             </div>
 
             <div className="shared-header-right">
+              <button
+                type="button"
+                className={`diagnostics-toggle-btn ${diagnosticsEnabled ? 'enabled' : ''}`}
+                onClick={togglePanel}
+                title="Toggle diagnostics panel (Cmd/Ctrl + Shift + D)"
+              >
+                <Bug size={14} />
+                <span>Diagnostics</span>
+              </button>
               {user && (
                 <img
                   src={user.avatar_url}
@@ -303,6 +357,7 @@ export default function AppLayout() {
             </div>
           </header>
           <Outlet />
+          <DiagnosticsPanel />
         </div>
       </div>
     </SidebarContext.Provider>
