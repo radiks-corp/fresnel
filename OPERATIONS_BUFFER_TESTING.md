@@ -9,14 +9,14 @@ The GitHub Operations Buffer system has been successfully implemented with the f
 1. **`src/types/githubOperations.js`** - Type definitions for operation objects
 2. **`src/hooks/useOperationsBuffer.js`** - React hook for managing operation state and execution
 3. **`src/components/OperationsBuffer.jsx`** - UI component for displaying operations
-4. **Backend tool added to `backend/src/index.ts`** - `planGitHubOperation` client-side tool
+4. **Backend tool added to `backend/src/index.ts`** - `plan_operation` client-side tool
 
 ### Integration Points
 
 - **UnifiedReview component** (`src/components/UnifiedReview.jsx`) has been updated with:
   - Import of the operations buffer hook and component
   - `useOperationsBuffer()` hook initialization
-  - `onToolCall` handler for intercepting `planGitHubOperation` tool calls
+  - `onToolCall` handler for intercepting `plan_operation` tool calls
   - `addToolOutput` to send results back to the AI
   - `<OperationsBuffer />` component rendered above chat messages (Ask mode only)
 
@@ -33,7 +33,7 @@ The GitHub Operations Buffer system has been successfully implemented with the f
 1. Navigate to a repository in Ask mode (not Review mode)
 2. Select an issue or PR
 3. Ask the AI: "Add a comment to issue #123 saying 'This looks good'"
-4. The AI should call the `planGitHubOperation` tool
+4. The AI should call the `plan_operation` tool
 5. **Expected Result**: A new operation appears above the chatbox showing:
    - Type: Comment on owner/repo#123
    - Body: "This looks good"
@@ -43,7 +43,7 @@ The GitHub Operations Buffer system has been successfully implemented with the f
 ### Test Scenario 2: Add Labels Operation
 
 1. In Ask mode, ask: "Mark issue #456 as duplicate"
-2. The AI should call `planGitHubOperation` with type `set_labels` or `add_labels`
+2. The AI should call `plan_operation` with type `set_labels` or `add_labels`
 3. **Expected Result**: Operation appears showing:
    - Type: Set/Add labels on owner/repo#456
    - Labels: [duplicate]
@@ -96,7 +96,7 @@ The GitHub Operations Buffer system has been successfully implemented with the f
 
 ## Verification Checklist
 
-- [ ] Operations appear in the buffer when AI calls `planGitHubOperation`
+- [ ] Operations appear in the buffer when AI calls `plan_operation`
 - [ ] Operations show correct type, repo, issue number, and details
 - [ ] Individual execute button works
 - [ ] "Execute All" button executes all pending operations
@@ -122,14 +122,14 @@ To add new operation types (e.g., `close_issue`, `assign_user`):
 
 1. Add the type to `src/types/githubOperations.js`
 2. Add a case in `executeOperation` switch statement in `useOperationsBuffer.js`
-3. Update the `planGitHubOperation` tool schema in `backend/src/index.ts`
+3. Update the `plan_operation` tool schema in `backend/src/index.ts`
 4. Update the UI rendering in `OperationsBuffer.jsx` `getOperationTitle` and `getOperationDetails`
 
 ## Troubleshooting
 
 **Operations not appearing?**
 - Check browser console for errors
-- Verify the AI is calling the `planGitHubOperation` tool (check network tab)
+- Verify the AI is calling the `plan_operation` tool (check network tab)
 - Ensure you're in Ask mode, not Review mode
 
 **Execute fails?**

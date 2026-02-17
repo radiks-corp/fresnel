@@ -56,17 +56,17 @@ console.error(`[OperationsBuffer] Operation failed: type=${operation.type}, id=$
 
 **When tool calls are received:**
 ```javascript
-console.log(`[UnifiedReview] Tool call received: tool=planGitHubOperation, operationType=${toolCall.input.operationType}`)
+console.log(`[UnifiedReview] Tool call received: tool=plan_operation, operationType=${toolCall.input.operationType}`)
 ```
 
 **When tool calls succeed:**
 ```javascript
-console.log(`[UnifiedReview] Tool call succeeded: tool=planGitHubOperation, operationId=${operation.id}`)
+console.log(`[UnifiedReview] Tool call succeeded: tool=plan_operation, operationId=${operation.id}`)
 ```
 
 **When tool calls fail:**
 ```javascript
-console.error(`[UnifiedReview] Tool call failed: tool=planGitHubOperation, error=${error.name}`)
+console.error(`[UnifiedReview] Tool call failed: tool=plan_operation, error=${error.name}`)
 ```
 
 ## Backend Logging
@@ -149,7 +149,7 @@ console.log('[Tool] search_issues succeeded: total_count=' + data.total_count)
 console.log('[Tool] search_issues failed: status=' + searchRes.status)
 ```
 
-**planGitHubOperation tool:**
+**plan_operation tool:**
 - This is a **client-side tool** with no execute function on the backend
 - The backend only provides the schema
 - Frontend logs the actual execution (see Frontend Logging section)
@@ -163,7 +163,7 @@ console.log('[Tool] search_issues failed: status=' + searchRes.status)
 === Chat Request ===
 Messages count: 1
 Context type: repo-level
-[Tools] Registered tools: read_file, list_files, list_issues, get_issue, search_issues, planGitHubOperation
+[Tools] Registered tools: read_file, list_files, list_issues, get_issue, search_issues, plan_operation
 [Tool] list_issues called: state=open, page=1
 [Tool] list_issues succeeded: count=100
 [Tool] get_issue called: issue_number=42
@@ -174,18 +174,18 @@ Context type: repo-level
 
 **Successful Operation:**
 ```
-[UnifiedReview] Tool call received: tool=planGitHubOperation, operationType=comment
+[UnifiedReview] Tool call received: tool=plan_operation, operationType=comment
 [OperationsBuffer] Operation added: type=comment, id=a1b2c3d4-...
-[UnifiedReview] Tool call succeeded: tool=planGitHubOperation, operationId=a1b2c3d4-...
+[UnifiedReview] Tool call succeeded: tool=plan_operation, operationId=a1b2c3d4-...
 [OperationsBuffer] Executing operation: type=comment, id=a1b2c3d4-...
 [OperationsBuffer] Operation succeeded: type=comment, id=a1b2c3d4-...
 ```
 
 **Failed Operation:**
 ```
-[UnifiedReview] Tool call received: tool=planGitHubOperation, operationType=set_labels
+[UnifiedReview] Tool call received: tool=plan_operation, operationType=set_labels
 [OperationsBuffer] Operation added: type=set_labels, id=e5f6g7h8-...
-[UnifiedReview] Tool call succeeded: tool=planGitHubOperation, operationId=e5f6g7h8-...
+[UnifiedReview] Tool call succeeded: tool=plan_operation, operationId=e5f6g7h8-...
 [OperationsBuffer] Executing operation: type=set_labels, id=e5f6g7h8-...
 [OperationsBuffer] Operation failed: type=set_labels, id=e5f6g7h8-..., error=Error
 ```

@@ -75,7 +75,7 @@ function Landing() {
       <main>
         <section className="hero">
           <div className="hero-content">
-            <h1>Built to help your team ship faster,<br />Fresnel helps you review code with AI.</h1>
+            <h1>Built to empower your team to ship faster,<br />Fresnel helps you review code with AI.</h1>
             <div className="buttons">
               <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'hero' })}>Download for macOS <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginLeft: '6px'}}><path d="M8 1.5V9M8 9L5 6M8 9L11 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 10V12.5C2.5 13.0523 2.94772 13.5 3.5 13.5H12.5C13.0523 13.5 13.5 13.0523 13.5 12.5V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></a>
             </div>
