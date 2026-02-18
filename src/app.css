@@ -53,6 +53,138 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
+  display: block;
+}
+
+/* Profile menu */
+.profile-menu {
+  position: relative;
+}
+
+.profile-menu-trigger {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: opacity 0.15s;
+}
+
+.profile-menu-trigger:hover {
+  opacity: 0.8;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+  overflow: hidden;
+  animation: profileDropdownIn 0.12s ease;
+}
+
+@keyframes profileDropdownIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.profile-dropdown-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px;
+}
+
+.profile-dropdown-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.profile-dropdown-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.profile-dropdown-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2328;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-dropdown-login {
+  font-size: 12px;
+  color: #656d76;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-dropdown-divider {
+  height: 1px;
+  background: #eaeef2;
+  margin: 0;
+}
+
+.profile-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  color: #57606a;
+}
+
+.profile-dropdown-icon {
+  flex-shrink: 0;
+  color: #57606a;
+}
+
+.profile-dropdown-label {
+  line-height: 1.4;
+}
+
+.profile-dropdown-label strong {
+  color: #1f2328;
+  font-weight: 600;
+}
+
+.profile-quota-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  transition: background 0.3s;
+}
+
+.profile-dropdown-logout {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  color: #cf222e;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.profile-dropdown-logout:hover {
+  background: #fff0f0;
 }
 
 /* Omnibar — GitHub-style repo selector */
@@ -347,35 +479,104 @@
   font-weight: 500;
 }
 
+.header-dropdown-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0969da;
+  background: #f6f8fa;
+  border: none;
+  border-top: 1px solid #e5e5e5;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.header-dropdown-load-more:hover:not(:disabled) {
+  background: #ddf4ff;
+  color: #0550ae;
+}
+
+.header-dropdown-load-more:disabled {
+  cursor: default;
+  color: #656d76;
+}
+
+.pr-review-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #57606a;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+  font-family: inherit;
+}
+
+.pr-review-filter-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #24292f;
+}
+
+.pr-review-filter-btn.active {
+  color: #0969da;
+  background: #ddf4ff;
+  border-color: #54aeff66;
+}
+
+.pr-review-filter-btn.active:hover {
+  background: #cae8ff;
+}
+
+.pr-review-filter-dropdown {
+  min-width: 260px;
+}
+
+.pr-review-filter-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #57606a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 12px 4px;
+}
+
+.pr-review-filter-clear {
+  color: #cf222e;
+  font-size: 12px;
+  border-bottom: 1px solid #f3f4f6;
+  margin-bottom: 2px;
+  border-radius: 4px;
+}
+
+.pr-review-filter-clear:hover {
+  background: #fff0ee !important;
+  color: #a40e26;
+}
+
+.pr-review-filter-check {
+  color: #0969da;
+  flex-shrink: 0;
+}
+
 .viewed-counter {
   font-size: 13px;
   color: #71717a;
   background: #f4f4f5;
   padding: 4px 10px;
   border-radius: 100px;
-}
-
-/* Tabs Bar — Back button */
-.tabs-back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 8px;
-  background: none;
-  border: none;
-  color: #57606a;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-  border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-  white-space: nowrap;
-}
-
-.tabs-back-btn:hover {
-  color: #24292f;
-  background: #e8e8ea;
 }
 
 /* Tabs Bar */
@@ -438,6 +639,27 @@
 
 .tabs-bar-spacer {
   flex: 1;
+}
+
+.tabs-bar-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #71717a;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.tabs-bar-back-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #18181b;
 }
 
 /* Submit Review Button (top right of tabs bar) */
@@ -1156,7 +1378,9 @@
 
 /* Diff Content */
 .diff-content {
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   min-height: 0;
   min-width: 0;
   background: #f4f4f5;
@@ -1503,7 +1727,6 @@
   padding: 0 16px;
   white-space: pre;
   word-wrap: normal;
-  overflow-x: auto;
 }
 
 /* Jump-to highlight — class-based with transition fade-out */

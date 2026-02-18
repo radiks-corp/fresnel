@@ -5,9 +5,21 @@ import { trackEvent } from '../hooks/useAnalytics'
 import { useRepos } from '../hooks/useRepos'
 import { useInboxIssues, useInboxPulls } from '../hooks/useInboxItems'
 import { useSidebarContext } from '../contexts/SidebarContext'
-import { MagnifyingGlass, GitPullRequest, CircleDashed } from '@phosphor-icons/react'
+import { MagnifyingGlass, GitPullRequest, CircleDashed, Funnel, CaretDown, Check, X, SpinnerGap } from '@phosphor-icons/react'
+import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import OnboardingModal from '../components/OnboardingModal'
 import './InboxPage.css'
+
+const REVIEW_FILTERS = [
+  { label: 'No reviews', value: 'no_reviews' },
+  { label: 'Review required', value: 'review_required' },
+  { label: 'Approved review', value: 'approved' },
+  { label: 'Changes requested', value: 'changes_requested' },
+  { label: 'Reviewed by you', value: 'reviewed_by_you' },
+  { label: 'Not reviewed by you', value: 'not_reviewed_by_you' },
+  { label: 'Awaiting review from you', value: 'awaiting_review_from_you' },
+  { label: 'Awaiting review from you or your team', value: 'awaiting_review_from_you_or_team' },
+]
 
 function formatTimeAgo(dateString) {
   const date = new Date(dateString)
@@ -43,6 +55,9 @@ export default function InboxPage() {
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [reviewFilter, setReviewFilter] = useState(() => {
+    return localStorage.getItem('inboxReviewFilter') ?? 'awaiting_review_from_you'
+  })
 
   const { user, loading } = useAuth()
   const navigate = useNavigate()
@@ -58,7 +73,16 @@ export default function InboxPage() {
 
   const activeRepos = selectedRepo ? [selectedRepo] : []
   const { data: issues = [], isLoading: loadingIssues } = useInboxIssues(activeRepos, debouncedQuery)
-  const { data: pulls = [], isLoading: loadingPulls } = useInboxPulls(activeRepos, user?.login, debouncedQuery)
+  const {
+    data: pullsData,
+    isLoading: loadingPulls,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInboxPulls(activeRepos, user?.login, debouncedQuery, reviewFilter)
+  const pulls = pullsData?.pulls ?? []
+  const pullsTotalCount = pullsData?.totalCount ?? 0
+  const pullsHasMore = pullsData?.hasMore ?? false
 
   const loadingItems = loadingIssues || loadingPulls
 
@@ -97,7 +121,7 @@ export default function InboxPage() {
               trackEvent('Inbox Tab Changed', { tab: 'pulls' })
             }}
           >
-            Pull requests <span className="tab-count">{pulls.length}</span>
+            Pull requests <span className="tab-count">{pullsTotalCount || pulls.length}</span>
           </button>
           <button
             className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
@@ -122,9 +146,52 @@ export default function InboxPage() {
               className="inbox-search-input"
             />
           </div>
-          <span className="inbox-result-count">
-            {items.length} {activeTab === 'issues' ? 'issue' : 'pull request'}{items.length !== 1 ? 's' : ''}
-          </span>
+          <div className="inbox-toolbar-right">
+            {activeTab === 'pulls' && (
+              <Popover style={{ position: 'relative' }}>
+                <PopoverButton className={`inbox-review-filter-btn${reviewFilter ? ' active' : ''}`}>
+                  <Funnel size={13} weight={reviewFilter ? 'fill' : 'regular'} />
+                  {reviewFilter
+                    ? REVIEW_FILTERS.find((f) => f.value === reviewFilter)?.label
+                    : 'Reviews'}
+                  <CaretDown size={10} />
+                </PopoverButton>
+                <PopoverPanel className="inbox-review-filter-panel">
+                  {({ close }) => (
+                    <>
+                      <div className="inbox-review-filter-header">Filter by reviews</div>
+                      {reviewFilter && (
+                        <div
+                          className="inbox-review-filter-item clear"
+                          onClick={() => { setReviewFilter(null); localStorage.removeItem('inboxReviewFilter'); close() }}
+                        >
+                          <X size={12} />
+                          Clear filter
+                        </div>
+                      )}
+                      {REVIEW_FILTERS.map((f) => (
+                        <div
+                          key={f.value}
+                          className={`inbox-review-filter-item${reviewFilter === f.value ? ' active' : ''}`}
+                          onClick={() => { setReviewFilter(f.value); localStorage.setItem('inboxReviewFilter', f.value); close() }}
+                        >
+                          <span className="inbox-review-filter-check">
+                            {reviewFilter === f.value && <Check size={12} weight="bold" />}
+                          </span>
+                          {f.label}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </PopoverPanel>
+              </Popover>
+            )}
+            <span className="inbox-result-count">
+              {activeTab === 'pulls' && pullsTotalCount > pulls.length
+                ? `${pulls.length} of ${pullsTotalCount} pull requests`
+                : `${items.length} ${activeTab === 'issues' ? 'issue' : 'pull request'}${items.length !== 1 ? 's' : ''}`}
+            </span>
+          </div>
         </div>
 
         <div className="inbox-list">
@@ -137,7 +204,8 @@ export default function InboxPage() {
                 : `No open ${activeTab === 'issues' ? 'issues' : 'pull requests'}`}
             </div>
           ) : (
-            items.map((item) => (
+            <>
+            {items.map((item) => (
               <div
                 key={item.id}
                 className="inbox-row"
@@ -189,7 +257,23 @@ export default function InboxPage() {
                   )}
                 </div>
               </div>
-            ))
+            ))}
+            {activeTab === 'pulls' && (pullsHasMore || (pullsTotalCount > 0 && pulls.length < pullsTotalCount)) && (
+              <div className="inbox-load-more-row">
+                <button
+                  className="inbox-load-more"
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? (
+                    <><SpinnerGap size={14} className="spinning" /> Loading...</>
+                  ) : (
+                    'Load more'
+                  )}
+                </button>
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>

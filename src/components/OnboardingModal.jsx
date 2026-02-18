@@ -129,7 +129,7 @@ export default function OnboardingModal() {
         </div>
         <div className="onboarding-footer">
           <a
-            href="https://github.com/settings/tokens/new?scopes=repo&description=Fresnel"
+            href="https://github.com/settings/tokens/new?scopes=repo&description=ReviewGPT"
             target="_blank"
             rel="noopener noreferrer"
             className="onboarding-link"

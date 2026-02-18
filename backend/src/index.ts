@@ -104,6 +104,58 @@ function forwardGitHubError(ghRes: Response, expressRes: any, fallbackMessage: s
   return expressRes.status(status).json({ error: message, rateLimited: !!isRateLimited })
 }
 
+// Default AI completions per user (~$5 of Claude Sonnet usage)
+const DEFAULT_COMPLETIONS = 25
+
+// User quota model — maps github_username → completions remaining
+const userQuotaSchema = new mongoose.Schema({
+  githubUsername: { type: String, required: true, unique: true },
+  completionsLeft: { type: Number, required: true, default: DEFAULT_COMPLETIONS },
+}, { timestamps: true })
+
+const UserQuota = mongoose.model('UserQuota', userQuotaSchema)
+
+class QuotaExceededError extends Error {
+  constructor() {
+    super('QUOTA_EXCEEDED')
+    this.name = 'QuotaExceededError'
+  }
+}
+
+/**
+ * Look up the GitHub username for a PAT, ensure a quota record exists,
+ * and atomically decrement completionsLeft. Throws QuotaExceededError
+ * when the user has no completions remaining.
+ */
+async function checkAndDecrementQuota(token: string): Promise<string> {
+  const userRes = await fetch('https://api.github.com/user', {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+    },
+  })
+  if (!userRes.ok) throw new Error('Invalid token')
+  const userData = await userRes.json() as any
+  const username = userData.login
+
+  // Ensure a quota record exists; $setOnInsert is a no-op when the doc already exists
+  await UserQuota.updateOne(
+    { githubUsername: username },
+    { $setOnInsert: { completionsLeft: DEFAULT_COMPLETIONS } },
+    { upsert: true }
+  )
+
+  // Atomically decrement only when completionsLeft > 0
+  const updated = await UserQuota.findOneAndUpdate(
+    { githubUsername: username, completionsLeft: { $gt: 0 } },
+    { $inc: { completionsLeft: -1 } },
+    { new: true }
+  )
+
+  if (!updated) throw new QuotaExceededError()
+  return username
+}
+
 // Middleware
 app.use(cors({
   origin: FRONTEND_URL,
@@ -151,6 +203,46 @@ app.get('/api/auth/me', async (req, res) => {
     res.json(userData)
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch user' })
+  }
+})
+
+// Get current user's quota info
+app.get('/api/me', async (req, res) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    })
+
+    if (!userRes.ok) return res.status(401).json({ error: 'Invalid token' })
+    const userData = await userRes.json() as any
+
+    // Ensure quota record exists
+    await UserQuota.updateOne(
+      { githubUsername: userData.login },
+      { $setOnInsert: { completionsLeft: DEFAULT_COMPLETIONS } },
+      { upsert: true }
+    )
+
+    const quota = await UserQuota.findOne({ githubUsername: userData.login })
+
+    res.json({
+      login: userData.login,
+      completionsLeft: quota?.completionsLeft ?? DEFAULT_COMPLETIONS,
+    })
+  } catch (error) {
+    Sentry.captureException(error)
+    res.status(500).json({ error: 'Failed to fetch user quota' })
   }
 })
 
@@ -258,6 +350,7 @@ app.get('/api/inbox/pulls', async (req, res) => {
   const repos = (req.query.repos as string) || ''
   const username = (req.query.username as string) || ''
   const q = (req.query.q as string) || ''
+  const reviewFilter = (req.query.review_filter as string) || ''
 
   if (!repos || !username) {
     return res.json([])
@@ -285,16 +378,34 @@ app.get('/api/inbox/pulls', async (req, res) => {
     }
   }
 
+  const INBOX_REVIEW_FILTER_MAP: Record<string, string> = {
+    no_reviews: 'review:none',
+    review_required: 'review:required',
+    approved: 'review:approved',
+    changes_requested: 'review:changes_requested',
+    reviewed_by_you: `reviewed-by:${username}`,
+    not_reviewed_by_you: `-reviewed-by:${username}`,
+    awaiting_review_from_you: `review-requested:${username}`,
+    awaiting_review_from_you_or_team: `review-requested:${username}`,
+  }
+
+  const page = parseInt(req.query.page as string) || 1
+  const perPage = Math.min(parseInt(req.query.per_page as string) || 30, 100)
+
   try {
     const repoFilter = repoList.map(r => `repo:${r}`).join('+')
-    let searchQuery = `${repoFilter}+type:pr+state:open+review-requested:${username}+-is:draft`
+    const reviewQualifier = (reviewFilter && INBOX_REVIEW_FILTER_MAP[reviewFilter])
+      ? INBOX_REVIEW_FILTER_MAP[reviewFilter]
+      : null
+    const qualifierPart = reviewQualifier ? `+${reviewQualifier}` : ''
+    let searchQuery = `${repoFilter}+type:pr+state:open${qualifierPart}+-is:draft`
 
     if (q.trim()) {
       searchQuery = `${encodeURIComponent(q.trim())}+${searchQuery}`
     }
 
     const searchRes = await fetch(
-      `https://api.github.com/search/issues?q=${searchQuery}&per_page=100&sort=updated`,
+      `https://api.github.com/search/issues?q=${searchQuery}&per_page=${perPage}&page=${page}&sort=updated`,
       {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -307,8 +418,11 @@ app.get('/api/inbox/pulls', async (req, res) => {
       return res.status(searchRes.status).json({ error: 'GitHub search failed' })
     }
 
-    const data = await searchRes.json() as any
+    const data = await searchRes.json() as { items: any[]; total_count: number }
     const items = data.items || []
+    const totalCount = data.total_count ?? 0
+    const linkHeader = searchRes.headers.get('link') || ''
+    const hasNextPage = linkHeader.includes('rel="next"')
 
     // Fetch full PR objects in parallel to get base/head refs for stack detection
     const fullPRs = await Promise.all(
@@ -328,12 +442,23 @@ app.get('/api/inbox/pulls', async (req, res) => {
       })
     )
 
-    res.json(fullPRs)
+    res.json({ items: fullPRs, hasNextPage, page, totalCount })
   } catch (error) {
     console.error('Failed to search inbox pulls:', error)
     res.status(500).json({ error: 'Failed to search pull requests' })
   }
 })
+
+const REVIEW_FILTER_QUALIFIERS: Record<string, string> = {
+  no_reviews: 'review:none',
+  review_required: 'review:required',
+  approved: 'review:approved',
+  changes_requested: 'review:changes_requested',
+  reviewed_by_you: 'reviewed-by:@me',
+  not_reviewed_by_you: '-reviewed-by:@me',
+  awaiting_review_from_you: 'review-requested:@me',
+  awaiting_review_from_you_or_team: 'review-requested:@me',
+}
 
 // Get pull requests for a repository
 app.get('/api/repos/:owner/:repo/pulls', async (req, res) => {
@@ -353,21 +478,56 @@ app.get('/api/repos/:owner/:repo/pulls', async (req, res) => {
   }
 
   const token = authHeader.slice(7)
+  const page = parseInt(req.query.page as string) || 1
+  const perPage = Math.min(parseInt(req.query.per_page as string) || 30, 100)
+  const reviewFilter = req.query.review_filter as string | undefined
 
   try {
-    const prsResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=50`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-      },
-    })
+    let prs: any[]
+    let hasNextPage: boolean
 
-    if (!prsResponse.ok) {
-      return res.status(prsResponse.status).json({ error: 'Failed to fetch PRs' })
+    if (reviewFilter && REVIEW_FILTER_QUALIFIERS[reviewFilter]) {
+      const qualifier = REVIEW_FILTER_QUALIFIERS[reviewFilter]
+      const q = encodeURIComponent(`repo:${owner}/${repo} is:pr is:open ${qualifier}`)
+      const searchResponse = await fetch(
+        `https://api.github.com/search/issues?q=${q}&per_page=${perPage}&page=${page}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        }
+      )
+
+      if (!searchResponse.ok) {
+        return res.status(searchResponse.status).json({ error: 'Failed to fetch PRs' })
+      }
+
+      const searchData = await searchResponse.json() as { items: any[]; total_count: number }
+      prs = searchData.items ?? []
+      const totalCount = searchData.total_count ?? 0
+      hasNextPage = page * perPage < totalCount
+    } else {
+      const prsResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=${perPage}&page=${page}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        }
+      )
+
+      if (!prsResponse.ok) {
+        return res.status(prsResponse.status).json({ error: 'Failed to fetch PRs' })
+      }
+
+      prs = await prsResponse.json() as any[]
+      const linkHeader = prsResponse.headers.get('link') || ''
+      hasNextPage = linkHeader.includes('rel="next"')
     }
 
-    const prs = await prsResponse.json()
-    res.json(prs)
+    res.json({ items: prs, hasNextPage, page })
   } catch (error) {
     console.error('Failed to fetch PRs:', error)
     res.status(500).json({ error: 'Failed to fetch pull requests' })
@@ -943,6 +1103,19 @@ async function handleChat(req: any, res: any) {
     return res.status(400).json({ error: error.message })
   }
 
+  // Check and decrement quota before doing any AI work
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await checkAndDecrementQuota(token)
+    } catch (err: any) {
+      if (err.name === 'QuotaExceededError') {
+        return res.status(402).send('QUOTA_EXCEEDED')
+      }
+      console.error('[Quota] Check failed:', err)
+      Sentry.captureException(err)
+    }
+  }
+
   const hasPR = !!pull_number
 
   // Debug logging
@@ -1017,14 +1190,18 @@ async function handleChat(req: any, res: any) {
 
 5. **Structure your responses clearly.** Use headings and bullet points to organize information about different files and changes.
 
+6. **Format code with syntax highlighting.** Always wrap code snippets in fenced code blocks with the appropriate language tag, e.g. \`\`\`typescript or \`\`\`python. Never output bare code without a language tag.
+
 ## Available Tools
 
 - \`list_files\`: List all changed files with addition/deletion counts. Pass an empty string for filter to see all files.
 - \`read_file\`: Read the diff content for a specific file. Use page=1 to start, and increment for large files.
+- \`search_code\`: Search the full codebase for functions, patterns, or identifiers. Use this to find consumers of changed APIs, locate type definitions, check test coverage, or understand how a symbol is used outside this PR. Results include file paths and code snippets.
 - \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page). Much faster than search for getting all issues. Supports filtering by state, labels, etc.
 - \`get_issue\`: Get full details for a specific issue by number. No rate limits.
 - \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
 - \`plan_operation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
+- \`suggest_comment\`: Suggest an inline review comment on a specific file and line of the PR. Use this when you have a concrete, actionable suggestion — a bug, an improvement, or a concern tied to a specific line. The comment will appear as a card in the conversation that the user can add to the PR or dismiss. Use this proactively whenever you spot something worth flagging in the diff.
 
 **Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search.
 
@@ -1098,11 +1275,14 @@ When closing issues as duplicates, you MUST follow these rules strictly:
 
 4. **Structure your responses clearly.** Use headings and bullet points to organize information from your research.
 
+5. **Format code with syntax highlighting.** Always wrap code snippets in fenced code blocks with the appropriate language tag, e.g. \`\`\`typescript or \`\`\`python. Never output bare code without a language tag.
+
 ## Available Tools
 
 - \`list_issues\`: **Use this first!** List all issues/PRs efficiently (100 per page, paginated). Much faster and has higher rate limits than search. Supports filtering by state, labels, sort order, etc.
 - \`get_issue\`: Get full details for a specific issue by number. No rate limits. Use this when you need complete details about a specific issue.
 - \`search_issues\`: **Use sparingly!** Has low rate limits (10/min). Only use for complex full-text searches that list_issues can't handle.
+- \`search_code\`: Search the full codebase for functions, patterns, or identifiers. Use this to understand how something is implemented, find all usages of a function, or look up type definitions and schemas.
 - \`plan_operation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
 
 **Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search that requires the query syntax.
@@ -1191,6 +1371,26 @@ Repository: ${owner}/${repo}`
         }
       },
     })
+
+    chatTools.suggest_comment = tool({
+      description: 'Suggest an inline review comment on a specific line of the PR. Use this when you have a concrete, actionable suggestion tied to a specific file and line number — for example, a bug, a potential improvement, or a security concern. The comment will appear inline in the conversation as a review card that the user can choose to add to the PR or dismiss.',
+      inputSchema: z.object({
+        path: z.string().describe('The file path (e.g., "src/components/Button.tsx")'),
+        line: z.number().describe('The line number in the new file where the comment applies'),
+        body: z.string().describe('The review comment in markdown. Write naturally like a helpful colleague. Include code suggestions in fenced blocks if relevant.'),
+        severity: z.enum(['critical', 'high', 'medium', 'low']).describe('How important is this issue? critical = breaks things, high = significant problem, medium = should fix, low = nitpick'),
+      }),
+      execute: async (comment) => {
+        console.log('[Tool] suggest_comment called: severity=' + comment.severity)
+        return {
+          success: true,
+          comment: {
+            id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ...comment,
+          }
+        }
+      },
+    })
   }
 
   // list_issues - more efficient for listing all issues (higher rate limits than search)
@@ -1258,6 +1458,54 @@ Repository: ${owner}/${repo}`
       } catch (error) {
         console.error('[Tool] list_issues error:', error)
         return { error: 'Failed to list issues' }
+      }
+    },
+  })
+
+  // search_code - search across the codebase for functions, patterns, or strings
+  chatTools.search_code = tool({
+    description: 'Search for code in the repository using GitHub code search. Use this to find how specific functions, patterns, or strings are used across the codebase. Especially useful for: finding consumers of changed APIs, checking if a function is called elsewhere, locating type definitions, verifying test coverage, and understanding data exposure. Returns file paths and matching code snippets.',
+    inputSchema: z.object({
+      query: z.string().describe(
+        'Code search query using GitHub code search syntax. Examples: "companyProfileId language:typescript", "function serializeProfile path:profiles", "class CompanyProfile path:models", "getProject path:test OR path:spec". Automatically scoped to this repo.'
+      ),
+    }),
+    execute: async ({ query }) => {
+      console.log('[Tool] search_code called: query=' + query)
+
+      try {
+        const searchQuery = encodeURIComponent(`${query} repo:${owner}/${repo}`)
+        const searchRes = await fetch(
+          `https://api.github.com/search/code?q=${searchQuery}&per_page=10`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              // text-match header returns code snippets around each match
+              'Accept': 'application/vnd.github.v3.text-match+json',
+            },
+          }
+        )
+
+        if (!searchRes.ok) {
+          console.log('[Tool] search_code failed: status=' + searchRes.status)
+          return { error: `GitHub code search failed with status ${searchRes.status}` }
+        }
+
+        const data = await searchRes.json() as any
+        console.log('[Tool] search_code succeeded: total_count=' + data.total_count)
+
+        return {
+          total_count: data.total_count,
+          results: (data.items || []).map((item: any) => ({
+            path: item.path,
+            url: item.html_url,
+            // Each text_match contains a fragment: surrounding lines of context
+            fragments: (item.text_matches || []).map((m: any) => m.fragment),
+          })),
+        }
+      } catch (error) {
+        console.error('[Tool] search_code error:', error)
+        return { error: 'Failed to search code' }
       }
     },
   })
@@ -1389,14 +1637,13 @@ Repository: ${owner}/${repo}`
     const modelMessages = await convertToModelMessages(messages)
     
     const result = streamText({
-      model: anthropic('claude-opus-4-5-20251101'),
+      model: anthropic('claude-sonnet-4-6'),
       messages: modelMessages,
       system: systemPrompt,
       tools: chatTools,
       stopWhen: stepCountIs(10),
       providerOptions: {
         anthropic: {
-          // Enable extended thinking with a token budget
           thinking: { type: 'enabled', budgetTokens: 10000 },
         },
       },
@@ -1441,6 +1688,19 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) =
   }
 
   const token = authHeader.slice(7)
+
+  // Check and decrement quota before doing any AI work
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await checkAndDecrementQuota(token)
+    } catch (err: any) {
+      if (err.name === 'QuotaExceededError') {
+        return res.status(402).send('QUOTA_EXCEEDED')
+      }
+      console.error('[Quota] Check failed:', err)
+      Sentry.captureException(err)
+    }
+  }
 
   // Debug logging
   console.log('=== Review Request ===')
@@ -1677,7 +1937,7 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
       : `Review this PR with focus: ${lens}. Find issues and call create_comment for each one.`
 
     const result = streamText({
-      model: anthropic('claude-opus-4-5-20251101'),
+      model: anthropic('claude-sonnet-4-6'),
       messages: [{ role: 'user', content: userMessage }],
       system: systemPrompt,
       tools,

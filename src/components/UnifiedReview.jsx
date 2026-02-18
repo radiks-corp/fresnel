@@ -8,6 +8,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useSidebarContext } from '../contexts/SidebarContext'
@@ -56,10 +58,53 @@ function TableWrapper({ children, ...props }) {
 function MessageResponse({ children }) {
   return (
     <div className="ai-message-response">
-      <ReactMarkdown 
+      <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
-        components={{ table: TableWrapper }}
+        components={{
+          table: TableWrapper,
+          // Strip the <pre> wrapper when it contains a syntax-highlighted block
+          // so we don't end up with two bordered boxes
+          pre({ children }) {
+            const child = Array.isArray(children) ? children[0] : children
+            if (child?.props?.className?.includes('language-')) {
+              return <>{children}</>
+            }
+            return <pre>{children}</pre>
+          },
+          code({ node, inline, className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '')
+            if (!inline && match) {
+              return (
+                <SyntaxHighlighter
+                  style={oneLight}
+                  language={match[1]}
+                  PreTag="div"
+                  wrapLongLines={true}
+                  customStyle={{
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    marginBottom: '1rem',
+                    border: '1px solid #e8eaed',
+                    background: '#ffffff',
+                  }}
+                  codeTagProps={{
+                    style: {
+                      background: 'transparent',
+                      borderRadius: 0,
+                      padding: 0,
+                      border: 'none',
+                    }
+                  }}
+                  {...props}
+                >
+                  {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+              )
+            }
+            return <code className={className} {...props}>{children}</code>
+          },
+        }}
       >
         {children}
       </ReactMarkdown>
@@ -156,7 +201,7 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
           src={userAvatar || 'https://avatars.githubusercontent.com/u/0?v=4'} 
           alt={userName || 'User'}
         />
-        <span className="review-comment-author">{userName || 'Fresnel'}</span>
+        <span className="review-comment-author">{userName || 'ReviewGPT'}</span>
         <span className="review-comment-location">on {comment.path}</span>
         <span 
           className="review-comment-severity"
@@ -759,7 +804,7 @@ export default function UnifiedReview({
                           {message.role === 'assistant' ? (
                             <MessageResponse>{part.text}</MessageResponse>
                           ) : (
-                            <div className="whitespace-pre-wrap">{part.text}</div>
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{part.text}</div>
                           )}
                         </Message>
                       )
@@ -778,7 +823,9 @@ export default function UnifiedReview({
                     }
                     
                     // Tool invocations (for Ask mode only)
+                    // Skip suggest_comment tool invocations — they render as ReviewCommentCard once complete
                     if (isAskMode && part.type === 'tool-invocation') {
+                      if (part.toolInvocation.toolName === 'suggest_comment') return null
                       return (
                         <ToolCall
                           key={`${message.id}-${i}`}
@@ -786,6 +833,24 @@ export default function UnifiedReview({
                           args={part.toolInvocation.args}
                           result={part.toolInvocation.result}
                           state={part.toolInvocation.state}
+                        />
+                      )
+                    }
+
+                    // Suggested comments inline in Ask mode
+                    if (isAskMode && part.type === 'tool-suggest_comment' && part.output?.success && part.output?.comment) {
+                      const comment = part.output.comment
+                      return (
+                        <ReviewCommentCard
+                          key={comment.id}
+                          comment={comment}
+                          userAvatar={userAvatar}
+                          userName={userName}
+                          onApply={handleApplyComment}
+                          onDismiss={handleDismissComment}
+                          onJumpTo={handleJumpTo}
+                          applied={appliedComments.has(comment.id)}
+                          dismissed={dismissedComments.has(comment.id)}
                         />
                       )
                     }
@@ -856,8 +921,33 @@ export default function UnifiedReview({
       
       {/* Disclaimer message */}
       <div className="chat-disclaimer">
-        Fresnel does not submit any changes to GitHub without your approval
+        ReviewGPT does not submit any changes to GitHub without your approval
       </div>
+
+      {/* Quota exceeded modal */}
+      {(chatError?.message?.includes('QUOTA_EXCEEDED') || reviewError?.message?.includes('QUOTA_EXCEEDED')) && (
+        <div className="quota-modal-overlay">
+          <div className="quota-modal">
+            <div className="quota-modal-icon">
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                <circle cx="16" cy="16" r="15" stroke="currentColor" strokeWidth="2"/>
+                <path d="M16 9v8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="16" cy="22" r="1.5" fill="currentColor"/>
+              </svg>
+            </div>
+            <h3 className="quota-modal-title">Usage limit reached</h3>
+            <p className="quota-modal-desc">
+              You've used all your free AI completions. Reach out and I'll top you up.
+            </p>
+            <a
+              href="mailto:me@mitchellhynes.com?subject=ReviewGPT%20usage%20limit"
+              className="quota-modal-btn"
+            >
+              me@mitchellhynes.com
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

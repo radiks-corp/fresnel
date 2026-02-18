@@ -54,6 +54,11 @@ function createWindow() {
 
 // Show native notification for new review request
 function showReviewNotification(pr) {
+  if (!Notification.isSupported()) {
+    console.warn('Notifications are not supported on this system.');
+    return;
+  }
+
   const notification = new Notification({
     title: 'New Review Request',
     body: `${pr.user.login} requested your review on "${pr.title}"`,
