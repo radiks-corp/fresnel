@@ -10,7 +10,16 @@ import { useOperationsStore } from '../stores/operationsStore'
 import ReviewSidebar from '../components/ReviewSidebar'
 import SidebarContext from '../contexts/SidebarContext'
 import { StatusBanner } from '../components/StatusBanner'
+import { apiFetch } from '../hooks/useGitHubAPI'
 import '../app.css'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
+function quotaDotColor(left) {
+  if (left >= 15) return '#22c55e'  // green
+  if (left >= 8)  return '#f59e0b'  // yellow
+  return '#ef4444'                   // red
+}
 
 const defaultSidebarData = {
   onApplyComment: null,
@@ -22,7 +31,7 @@ const defaultSidebarData = {
 export default function AppLayout() {
   const { repoId, prNumber } = useParams()
   const location = useLocation()
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const { data: repos = [] } = useRepos()
   const { isConnected } = useBackendHealth()
   const navigate = useNavigate()
@@ -30,6 +39,9 @@ export default function AppLayout() {
   const [inboxRepoId, setInboxRepoId] = useState(null)
   const [repoSearchQuery, setRepoSearchQuery] = useState('')
   const [isOmnibarOpen, setIsOmnibarOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [completionsLeft, setCompletionsLeft] = useState(null)
+  const profileRef = useRef(null)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const omnibarRef = useRef(null)
   const inputRef = useRef(null)
@@ -188,7 +200,7 @@ export default function AppLayout() {
     }
   }, [location.pathname])
 
-  // Click outside to close
+  // Click outside to close omnibar
   useEffect(() => {
     if (!isOmnibarOpen) return
     const handleMouseDown = (e) => {
@@ -199,6 +211,31 @@ export default function AppLayout() {
     document.addEventListener('mousedown', handleMouseDown)
     return () => document.removeEventListener('mousedown', handleMouseDown)
   }, [isOmnibarOpen, closeOmnibar])
+
+  // Click outside to close profile dropdown
+  useEffect(() => {
+    if (!profileOpen) return
+    const handleMouseDown = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [profileOpen])
+
+  // Fetch quota when profile opens (or on mount if user is available)
+  useEffect(() => {
+    if (!user) return
+    const token = localStorage.getItem('github_pat')
+    if (!token) return
+    fetch(`${API_URL}/api/me`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.completionsLeft != null) setCompletionsLeft(data.completionsLeft) })
+      .catch(() => {})
+  }, [user, profileOpen])
 
   // Keyboard navigation for omnibar input
   const handleOmnibarKeyDown = useCallback((e) => {
@@ -304,11 +341,61 @@ export default function AppLayout() {
 
             <div className="shared-header-right">
               {user && (
-                <img
-                  src={user.avatar_url}
-                  alt={user.login}
-                  className="shared-header-avatar"
-                />
+                <div className="profile-menu" ref={profileRef}>
+                  <button
+                    className="profile-menu-trigger"
+                    onClick={() => setProfileOpen(o => !o)}
+                    aria-label="Account menu"
+                  >
+                    <img
+                      src={user.avatar_url}
+                      alt={user.login}
+                      className="shared-header-avatar"
+                    />
+                  </button>
+
+                  {profileOpen && (
+                    <div className="profile-dropdown">
+                      <div className="profile-dropdown-user">
+                        <img src={user.avatar_url} alt={user.login} className="profile-dropdown-avatar" />
+                        <div className="profile-dropdown-info">
+                          <span className="profile-dropdown-name">{user.name || user.login}</span>
+                          <span className="profile-dropdown-login">@{user.login}</span>
+                        </div>
+                      </div>
+
+                      <div className="profile-dropdown-divider" />
+
+                      <div className="profile-dropdown-row">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="profile-dropdown-icon">
+                          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                        </svg>
+                        <span className="profile-dropdown-label">Signed in with GitHub</span>
+                      </div>
+
+                      <div className="profile-dropdown-row">
+                        <span
+                          className="profile-quota-dot"
+                          style={{ background: completionsLeft != null ? quotaDotColor(completionsLeft) : '#d1d5db' }}
+                        />
+                        <span className="profile-dropdown-label">
+                          {completionsLeft != null
+                            ? <><strong>{completionsLeft}</strong> AI completions left</>
+                            : 'Loading quota…'}
+                        </span>
+                      </div>
+
+                      <div className="profile-dropdown-divider" />
+
+                      <button
+                        className="profile-dropdown-logout"
+                        onClick={() => { setProfileOpen(false); logout(); trackEvent('User Logged Out via Menu') }}
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </header>

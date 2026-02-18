@@ -1,6 +1,6 @@
 {
   "appId": "com.fresnel.app",
-  "productName": "Fresnel",
+  "productName": "ReviewGPT",
   "directories": {
     "output": "release"
   },

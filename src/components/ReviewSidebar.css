@@ -1314,6 +1314,7 @@
   overflow: hidden;
   background: #fff;
   transition: background 0.2s ease;
+  position: relative;
 }
 
 .unified-review-container.has-lens {

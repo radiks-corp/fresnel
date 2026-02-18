@@ -62,7 +62,7 @@ function Landing() {
               <circle cx="12.0667" cy="12" r="9.4" stroke="currentColor" strokeWidth="1.33333"/>
               <circle cx="12" cy="12" r="11.5" stroke="currentColor"/>
             </svg>
-            Fresnel
+            ReviewGPT
           </a>
           <div className="nav-links">
             <a href="#features">Features</a>
@@ -75,7 +75,7 @@ function Landing() {
       <main>
         <section className="hero">
           <div className="hero-content">
-            <h1>Built to empower your team to ship faster,<br />Fresnel helps you review code with AI.</h1>
+            <h1>Built to empower your team to ship faster,<br />ReviewGPT helps you review code with AI.</h1>
             <div className="buttons">
               <a href="https://releases.reviewgpt.ca/latest/Fresnel.dmg" className="btn-primary" download onClick={() => trackEvent('Download Clicked', { location: 'hero' })}>Download for macOS <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginLeft: '6px'}}><path d="M8 1.5V9M8 9L5 6M8 9L11 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 10V12.5C2.5 13.0523 2.94772 13.5 3.5 13.5H12.5C13.0523 13.5 13.5 13.0523 13.5 12.5V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></a>
             </div>
@@ -101,7 +101,7 @@ function Landing() {
             <p>Never miss a code review again.</p>
           </div>
           <div className="hero-images">
-            <img src={tahoeWallpaper} alt="Fresnel" className="hero-image" />
+            <img src={tahoeWallpaper} alt="ReviewGPT" className="hero-image" />
             <img src={dockImage} alt="Dock" className="dock-overlay" />
           </div>
         </section>
@@ -160,7 +160,7 @@ function Landing() {
             <div className="review-text">
               <h2>Don't repeat yourself</h2>
               <p>
-                Fresnel suggests comments to add to your review. Your teammates 
+                ReviewGPT suggests comments to add to your review. Your teammates 
                 see thoughtful, human curated feedback.
               </p>
             </div>
@@ -169,17 +169,17 @@ function Landing() {
               <div className="prompt-header">
                 <div className="prompt-logo">
                   <svg viewBox="0 0 24 24" fill="none" width="24" height="24">
-                    <rect x="2" y="2" width="20" height="20" rx="4.5" fill="url(#fresnel-header)"/>
+                    <rect x="2" y="2" width="20" height="20" rx="4.5" fill="url(#reviewgpt-header)"/>
                     <path d="M12 6L6 9.5L12 13L18 9.5L12 6Z" fill="white" fillOpacity="0.95"/>
                     <path d="M6 12.5L12 16L18 12.5" stroke="white" strokeWidth="1.5" strokeOpacity="0.8"/>
                     <defs>
-                      <linearGradient id="fresnel-header" x1="2" y1="2" x2="22" y2="22">
+                      <linearGradient id="reviewgpt-header" x1="2" y1="2" x2="22" y2="22">
                         <stop stopColor="#7C3AED"/>
                         <stop offset="1" stopColor="#A855F7"/>
                       </linearGradient>
                     </defs>
                   </svg>
-                  <span>Fresnel</span>
+                  <span>ReviewGPT</span>
                 </div>
               </div>
               <div className="prompt-input">
@@ -248,7 +248,7 @@ function Landing() {
       </main>
 
       <footer>
-        <p>© 2026 Fresnel</p>
+        <p>© 2026 ReviewGPT</p>
       </footer>
 
     </>

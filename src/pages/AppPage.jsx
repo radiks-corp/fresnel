@@ -206,7 +206,14 @@ function AppPage() {
   const repoName = selectedRepo?.name
   const prNumber = selectedPR?.number
 
-  const { data: pullRequests = [], isLoading: loadingPRs } = usePullRequests(owner, repoName)
+  const {
+    data: pullRequestsData,
+    isLoading: loadingPRs,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = usePullRequests(owner, repoName)
+  const pullRequests = pullRequestsData?.pullRequests ?? []
   const { data: diff = '', isLoading: loadingDiff } = usePRDiff(owner, repoName, prNumber)
   const { data: prDetails = null, isLoading: loadingTimeline } = usePRDetails(owner, repoName, prNumber)
   const { data: timeline = [] } = usePRTimeline(owner, repoName, prNumber)
@@ -268,14 +275,28 @@ function AppPage() {
 
   // Select PR from URL params once pulls load
   useEffect(() => {
-    if (pullRequests.length === 0 || !selectedRepo) return
+    if (!selectedRepo) return
+
     if (urlPrNumber) {
       const prFromUrl = pullRequests.find(pr => pr.number.toString() === urlPrNumber)
       if (prFromUrl) {
-        setSelectedPR(prFromUrl)
-        return
+        // Found the full PR object in the loaded list — use it.
+        setSelectedPR(prev => prev?.id === prFromUrl.id ? prev : prFromUrl)
+      } else {
+        // PR is not in the loaded pages yet (e.g. paginated out, or a direct
+        // link / inbox click). Set a minimal placeholder so that usePRDiff /
+        // usePRDetails / usePRTimeline can still fire for the correct number.
+        // The real object will replace it once the page containing this PR loads.
+        setSelectedPR(prev => {
+          if (prev && prev.number.toString() === urlPrNumber) return prev
+          return { number: parseInt(urlPrNumber, 10) }
+        })
       }
+      return
     }
+
+    // No PR number in the URL — auto-select the first PR and update the URL.
+    if (pullRequests.length === 0) return
     setSelectedPR(pullRequests[0])
     navigate(`/app/${selectedRepo.id}/${pullRequests[0].number}`, { replace: true })
   }, [pullRequests, urlPrNumber, selectedRepo, navigate])
@@ -812,8 +833,9 @@ function AppPage() {
   return (
     <div className="app-page">
       <div className="tabs-bar">
-        <button className="tabs-back-btn" onClick={() => navigate('/app')}>
-          <ArrowLeft size={16} weight="bold" /> Back
+        <button className="tabs-bar-back-btn" onClick={() => navigate('/app')}>
+          <ArrowLeft size={14} weight="bold" />
+          Back
         </button>
 
         <div className="tabs-bar-divider" />
@@ -844,7 +866,7 @@ function AppPage() {
                       onClick={() => {
                         setSelectedPR(pr)
                         if (selectedRepo) {
-                          navigate(`/app/${selectedRepo.id}/${pr.number}`, { replace: true })
+                          navigate(`/app/${selectedRepo.id}/${pr.number}`)
                         }
                         trackEvent('PR Selected', {
                           pr_number: pr.number,
@@ -858,6 +880,22 @@ function AppPage() {
                       <span className="header-dropdown-text">{pr.title}</span>
                     </div>
                   ))}
+                  {hasNextPage && (
+                    <button
+                      className="header-dropdown-load-more"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        fetchNextPage()
+                      }}
+                      disabled={isFetchingNextPage}
+                    >
+                      {isFetchingNextPage ? (
+                        <><SpinnerGap size={14} className="spinning" /> Loading...</>
+                      ) : (
+                        'Load more'
+                      )}
+                    </button>
+                  )}
                 </>
               )}
             </PopoverPanel>

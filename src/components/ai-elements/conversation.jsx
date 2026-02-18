@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, createContext, useContext } from 'react'
+import { ArrowDown } from '@phosphor-icons/react'
 import './ai-elements.css'
 
 const ConversationContext = createContext(null)
@@ -64,7 +65,7 @@ export function ConversationScrollButton() {
 
   return (
     <button className="ai-scroll-button" onClick={scrollToBottom}>
-      ↓
+      <ArrowDown size={16} weight="bold" />
     </button>
   )
 }
