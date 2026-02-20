@@ -18,14 +18,12 @@ const isElectron = () => {
 
 const startElectronPolling = (token) => {
   if (isElectron() && token) {
-    console.log('Starting Electron review request polling...')
     window.electronAPI.startReviewPolling(token)
   }
 }
 
 const stopElectronPolling = () => {
   if (isElectron()) {
-    console.log('Stopping Electron review request polling...')
     window.electronAPI.stopReviewPolling()
   }
 }

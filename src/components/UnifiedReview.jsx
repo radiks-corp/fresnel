@@ -348,9 +348,6 @@ export default function UnifiedReview({
       
       // Handle the plan_operation tool
       if (toolCall.toolName === 'plan_operation') {
-        // Log tool call received (no PII - only operation type)
-        console.log(`[UnifiedReview] Tool call received: tool=plan_operation, operationType=${toolCall.input.operationType}`)
-        
         try {
           const operation = addOperation({
             type: toolCall.input.operationType,
@@ -361,10 +358,6 @@ export default function UnifiedReview({
             stateReason: toolCall.input.stateReason,
           })
           
-          // Log tool call success (no PII)
-          console.log(`[UnifiedReview] Tool call succeeded: tool=plan_operation, operationId=${operation.id}`)
-          
-          // Return success to the AI without awaiting (to avoid potential deadlocks)
           addToolOutput({
             tool: 'plan_operation',
             toolCallId: toolCall.toolCallId,

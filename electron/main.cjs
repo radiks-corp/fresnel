@@ -107,7 +107,6 @@ async function pollReviewRequests(token) {
       app.dock.setBadge(count > 0 ? count.toString() : '');
     }
 
-    // TEST MODE: Treat all PRs as new and notify for each one
     for (const pr of items) {
       const prId = `${pr.repository_url}#${pr.number}`;
       if (!seenReviewRequests.has(prId)) {
@@ -150,17 +149,14 @@ function stopPolling() {
 
 // IPC handlers
 ipcMain.on('start-review-polling', (event, token) => {
-  console.log('Starting review request polling...');
   startPolling(token);
 });
 
 ipcMain.on('stop-review-polling', () => {
-  console.log('Stopping review request polling...');
   stopPolling();
 });
 
 ipcMain.on('update-token', (event, token) => {
-  console.log('Updating token and restarting polling...');
   stopPolling();
   if (token) {
     startPolling(token);

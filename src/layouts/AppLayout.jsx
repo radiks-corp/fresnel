@@ -268,7 +268,7 @@ export default function AppLayout() {
     <SidebarContext.Provider value={{ ...sidebarData, setSidebarData, selectedRepo }}>
       <StatusBanner 
         message={!isConnected ? 'Unable to connect to backend server. Some features may be unavailable.' : ''}
-        onDismiss={() => console.log('Status banner dismissed')}
+        onDismiss={() => {}}
       />
       <div className="app-shell">
         <ReviewSidebar
