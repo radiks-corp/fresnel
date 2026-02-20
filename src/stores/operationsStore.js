@@ -25,7 +25,6 @@ export const useOperationsStore = create((set, get) => ({
       timestamp: Date.now(),
       status: 'pending',
     }
-    console.log(`[OperationsStore] Operation added: type=${op.type}, id=${op.id}`)
     set((state) => ({ operations: [...state.operations, op] }))
     return op
   },
@@ -53,7 +52,6 @@ export const useOperationsStore = create((set, get) => ({
     if (!operation) return
 
     updateOperation(operationId, { status: 'executing' })
-    console.log(`[OperationsStore] Executing: type=${operation.type}, id=${operationId}`)
 
     try {
       const [owner, repo] = operation.repo.split('/')
@@ -161,7 +159,6 @@ export const useOperationsStore = create((set, get) => ({
           throw new Error(`Unknown operation type: ${operation.type}`)
       }
 
-      console.log(`[OperationsStore] Succeeded: type=${operation.type}, id=${operationId}`)
       updateOperation(operationId, { status: 'success' })
 
       // Remove the completed operation after a short delay for the exit animation
@@ -231,7 +228,6 @@ export const useOperationsStore = create((set, get) => ({
         }
       )
 
-      console.log(`[OperationsStore] Review batch succeeded: ${reviewOps.length} comment(s) on ${repoFullName}#${prNumber}`)
       for (const op of reviewOps) {
         updateOperation(op.id, { status: 'success' })
         setTimeout(() => get().removeOperation(op.id), 400)
