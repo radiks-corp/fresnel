@@ -556,7 +556,7 @@ function AppPage() {
   const handleSubmitReview = async () => {
     if (!owner || !repoName || !prNumber) return
     
-    const token = localStorage.getItem('github_pat')
+    const token = localStorage.getItem('github_token') || localStorage.getItem('github_pat')
     if (!token) return
 
     setIsSubmitting(true)

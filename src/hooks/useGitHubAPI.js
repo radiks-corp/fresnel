@@ -3,7 +3,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 const MAX_RETRIES = 3
 
 export function getToken() {
-  return localStorage.getItem('github_pat')
+  return localStorage.getItem('github_token') || localStorage.getItem('github_pat')
 }
 
 /**

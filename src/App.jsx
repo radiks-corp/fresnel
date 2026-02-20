@@ -10,6 +10,7 @@ const AppPage = lazy(() => import('./pages/AppPage'))
 const InboxPage = lazy(() => import('./pages/InboxPage'))
 const IssuePage = lazy(() => import('./pages/IssuePage'))
 const AppLayout = lazy(() => import('./layouts/AppLayout'))
+const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,6 +59,7 @@ function App() {
             <Suspense fallback={fallback}>
               <Routes>
                 <Route path="/" element={<Navigate to="/app" replace />} />
+                <Route path="/auth/callback" element={<OAuthCallback />} />
                 <Route element={<AppLayout />}>
                   <Route path="/app" element={<InboxPage />} />
                   <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
@@ -83,6 +85,7 @@ function App() {
           <Suspense fallback={fallback}>
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route path="/auth/callback" element={<OAuthCallback />} />
               <Route element={<AppLayout />}>
                 <Route path="/app" element={<InboxPage />} />
                 <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
