@@ -26,12 +26,27 @@ const persister = createSyncStoragePersister({
   storage: typeof window !== 'undefined' ? window.localStorage : null,
 })
 
+const APP_HOSTNAME = 'app.reviewgpt.ca'
+const ROOT_HOSTNAMES = new Set(['reviewgpt.ca', 'www.reviewgpt.ca'])
+
 // app.reviewgpt.ca or Electron — skip the landing page, go straight to the app
-const isAppSubdomain = typeof window !== 'undefined' && window.location.hostname === 'app.reviewgpt.ca'
+const isAppSubdomain = typeof window !== 'undefined' && window.location.hostname === APP_HOSTNAME
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron
+const isRootDomain = typeof window !== 'undefined' && ROOT_HOSTNAMES.has(window.location.hostname)
+const isAppPath =
+  typeof window !== 'undefined' &&
+  (window.location.pathname === '/app' || window.location.pathname.startsWith('/app/'))
+const shouldRedirectToAppSubdomain = isRootDomain && isAppPath && !isElectron
+
+if (shouldRedirectToAppSubdomain) {
+  const { pathname, search, hash } = window.location
+  window.location.replace(`https://${APP_HOSTNAME}${pathname}${search}${hash}`)
+}
 
 function App() {
   const fallback = <div style={{ padding: 24, fontFamily: 'Barlow, sans-serif' }}>Loading…</div>
+  if (shouldRedirectToAppSubdomain) return fallback
+
   if (isAppSubdomain || isElectron) {
     return (
       <PersistQueryClientProvider
