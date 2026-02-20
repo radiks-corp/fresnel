@@ -63,7 +63,8 @@ function App() {
                 <Route element={<AppLayout />}>
                   <Route path="/app" element={<InboxPage />} />
                   <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
-                  <Route path="/app/:repoId/:prNumber?" element={<AppPage />} />
+                  <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
+                  <Route path="/app/:repoId" element={<AppPage />} />
                 </Route>
               </Routes>
             </Suspense>
@@ -88,7 +89,8 @@ function App() {
               <Route element={<AppLayout />}>
                 <Route path="/app" element={<InboxPage />} />
                 <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
-                <Route path="/app/:repoId/:prNumber?" element={<AppPage />} />
+                <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
+                <Route path="/app/:repoId" element={<AppPage />} />
               </Route>
             </Routes>
           </Suspense>
