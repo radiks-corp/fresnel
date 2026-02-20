@@ -3707,6 +3707,140 @@
   color: #8c959f;
 }
 
+/* Auth method picker cards */
+.auth-method-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.auth-method-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1.5px solid #d0d7de;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+
+.auth-method-card:hover {
+  border-color: #0969da;
+  box-shadow: 0 2px 8px rgba(9, 105, 218, 0.1);
+  background: #f6f8fa;
+}
+
+.auth-method-card.recommended {
+  border-color: #0969da;
+  background: #f6fbff;
+}
+
+.auth-method-card.recommended:hover {
+  border-color: #0550ae;
+  box-shadow: 0 2px 12px rgba(9, 105, 218, 0.16);
+  background: #eef6ff;
+}
+
+.auth-method-card:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.auth-method-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.auth-method-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f6f8fa;
+  border-radius: 10px;
+  color: #1f2328;
+  flex-shrink: 0;
+}
+
+.auth-method-card.recommended .auth-method-icon {
+  background: #ddf4ff;
+  color: #0969da;
+}
+
+.auth-method-icon.pat-icon {
+  background: #fff8e1;
+  color: #9a6700;
+}
+
+.auth-method-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #0969da;
+  background: #ddf4ff;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.auth-method-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.auth-method-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.auth-method-description {
+  font-size: 12.5px;
+  color: #656d76;
+  line-height: 1.4;
+}
+
+.auth-method-arrow {
+  flex-shrink: 0;
+  color: #8c959f;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.auth-method-card:hover .auth-method-arrow {
+  color: #0969da;
+  transform: translateX(2px);
+}
+
+.auth-method-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d0d7de;
+  border-top-color: #0969da;
+  border-radius: 50%;
+  animation: spinner-spin 0.6s linear infinite;
+}
+
+@keyframes spinner-spin {
+  to { transform: rotate(360deg); }
+}
+
 .onboarding-link {
   display: inline-block;
   margin-top: 16px;
