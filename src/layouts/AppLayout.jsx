@@ -227,7 +227,7 @@ export default function AppLayout() {
   // Fetch quota when profile opens (or on mount if user is available)
   useEffect(() => {
     if (!user) return
-    const token = localStorage.getItem('github_pat')
+    const token = localStorage.getItem('github_token') || localStorage.getItem('github_pat')
     if (!token) return
     fetch(`${API_URL}/api/me`, {
       headers: { 'Authorization': `Bearer ${token}` },

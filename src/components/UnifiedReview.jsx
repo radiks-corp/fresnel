@@ -290,7 +290,7 @@ export default function UnifiedReview({
     }
   }, [reviewSummary])
 
-  const getToken = () => localStorage.getItem('github_pat')
+  const getToken = () => localStorage.getItem('github_token') || localStorage.getItem('github_pat')
   
   // Mode depends on lens selection
   const isAskMode = !selectedLens

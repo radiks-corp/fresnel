@@ -25,7 +25,7 @@ function FeedSidebar({ isOpen, onSelectPR }) {
 
   useEffect(() => {
     async function fetchReviewRequests() {
-      const token = localStorage.getItem('github_pat')
+      const token = localStorage.getItem('github_token') || localStorage.getItem('github_pat')
       if (!token) {
         setLoading(false)
         return
