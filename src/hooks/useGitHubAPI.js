@@ -6,11 +6,6 @@ export function getToken() {
   return localStorage.getItem('github_token') || localStorage.getItem('github_pat')
 }
 
-/**
- * Compute how long to wait (ms) when we hit a rate limit.
- * Prefers the `retry-after` header, falls back to `x-ratelimit-reset`,
- * and uses exponential backoff as a last resort.
- */
 function getRateLimitDelay(res, attempt) {
   const retryAfter = res.headers.get('retry-after')
   if (retryAfter) {
@@ -28,10 +23,6 @@ function getRateLimitDelay(res, attempt) {
   return Math.min(1000 * 2 ** attempt, 60_000)
 }
 
-/**
- * Wraps a fetch call with automatic retry on 429 (rate limit) and
- * 403 when the response indicates a secondary rate limit.
- */
 async function fetchWithRateLimitRetry(url, options, attempt = 0) {
   const res = await fetch(url, options)
 

@@ -5,11 +5,8 @@ const AuthContext = createContext(null)
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
-// Unified token key — both OAuth and PAT tokens are stored here
 const TOKEN_KEY = 'github_token'
 const AUTH_METHOD_KEY = 'github_auth_method'
-
-// Legacy key for migration
 const LEGACY_PAT_KEY = 'github_pat'
 
 const isElectron = () => {
@@ -18,14 +15,12 @@ const isElectron = () => {
 
 const startElectronPolling = (token) => {
   if (isElectron() && token) {
-    console.log('Starting Electron review request polling...')
     window.electronAPI.startReviewPolling(token)
   }
 }
 
 const stopElectronPolling = () => {
   if (isElectron()) {
-    console.log('Stopping Electron review request polling...')
     window.electronAPI.stopReviewPolling()
   }
 }
@@ -34,12 +29,11 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [token, setToken] = useState(null)
-  const [authMethod, setAuthMethod] = useState(null) // 'oauth' | 'pat'
+  const [authMethod, setAuthMethod] = useState(null)
 
   const saveAuth = (newToken, method) => {
     localStorage.setItem(TOKEN_KEY, newToken)
     localStorage.setItem(AUTH_METHOD_KEY, method)
-    // Keep legacy key in sync so existing useGitHubAPI.js getToken() works
     localStorage.setItem(LEGACY_PAT_KEY, newToken)
     setToken(newToken)
     setAuthMethod(method)
@@ -82,7 +76,6 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    // Migrate legacy PAT key if needed
     const legacyPat = localStorage.getItem(LEGACY_PAT_KEY)
     const storedToken = localStorage.getItem(TOKEN_KEY) || legacyPat
 
@@ -101,7 +94,6 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  // Login with PAT
   const login = async (pat) => {
     setLoading(true)
     const success = await fetchUser(pat)
@@ -112,7 +104,6 @@ export function AuthProvider({ children }) {
     return success
   }
 
-  // Login with OAuth token (already exchanged)
   const loginWithOAuth = async (accessToken) => {
     setLoading(true)
     const success = await fetchUser(accessToken)
@@ -123,7 +114,6 @@ export function AuthProvider({ children }) {
     return success
   }
 
-  // Exchange OAuth code for token, then login
   const exchangeOAuthCode = async (code) => {
     try {
       const response = await fetch(`${API_URL}/api/auth/github/token`, {

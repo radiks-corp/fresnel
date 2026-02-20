@@ -17,7 +17,7 @@ const TOKEN_SCOPES = [
 const PAT_STEPS = 3
 
 export default function OnboardingModal() {
-  const [authChoice, setAuthChoice] = useState(null) // null = picker, 'oauth', 'pat'
+  const [authChoice, setAuthChoice] = useState(null)
   const [patInput, setPatInput] = useState('')
   const [patError, setPatError] = useState('')
   const [patLoading, setPatLoading] = useState(false)

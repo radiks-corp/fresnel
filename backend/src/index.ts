@@ -172,16 +172,13 @@ app.get('/health', (req, res) => {
   })
 })
 
-// GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || ''
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || ''
 
-// API routes
 app.get('/api', (req, res) => {
   res.json({ message: 'Fresnel API' })
 })
 
-// Exchange GitHub OAuth code for access token
 app.post('/api/auth/github/token', async (req, res) => {
   const { code } = req.body
 
@@ -223,7 +220,6 @@ app.post('/api/auth/github/token', async (req, res) => {
   }
 })
 
-// Return the GitHub OAuth Client ID so the frontend can initiate the flow
 app.get('/api/auth/github/client-id', (req, res) => {
   if (!GITHUB_CLIENT_ID) {
     return res.status(500).json({ error: 'GitHub OAuth is not configured' })
