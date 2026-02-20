@@ -28,6 +28,7 @@ services:
       PORT: 3001
       MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME:-fresnel}:${MONGO_ROOT_PASSWORD:-fresnel_dev_password}@mongodb:27017/${MONGO_DATABASE:-fresnel}?authSource=admin
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:3001}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}

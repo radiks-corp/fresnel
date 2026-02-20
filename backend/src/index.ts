@@ -2,6 +2,7 @@
 import './instrument.js'
 import { Sentry } from './instrument.js'
 
+import crypto from 'crypto'
 import express from 'express'
 import cors from 'cors'
 import mongoose from 'mongoose'
@@ -52,6 +53,7 @@ const PORT = process.env.PORT || 3001
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fresnel'
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001'
 
 /**
  * Validate and sanitize GitHub owner/repo names to prevent injection attacks
@@ -114,6 +116,22 @@ const userQuotaSchema = new mongoose.Schema({
 }, { timestamps: true })
 
 const UserQuota = mongoose.model('UserQuota', userQuotaSchema)
+
+// OAuth session model — short-lived records for the OAuth authorization flow.
+// Each session tracks state (CSRF), flow type (desktop/web), and temporarily
+// holds the access token until the client retrieves it exactly once.
+const oauthSessionSchema = new mongoose.Schema({
+  sessionId:   { type: String, required: true, unique: true, index: true },
+  state:       { type: String, required: true, unique: true },
+  flow:        { type: String, required: true, enum: ['web', 'desktop'] },
+  status:      { type: String, required: true, enum: ['pending', 'completed', 'consumed'], default: 'pending' },
+  accessToken: { type: String, default: null },
+  expiresAt:   { type: Date, required: true },
+}, { timestamps: true })
+
+oauthSessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+const OAuthSession = mongoose.model('OAuthSession', oauthSessionSchema)
 
 class QuotaExceededError extends Error {
   constructor() {
@@ -230,6 +248,218 @@ app.get('/api/auth/github/client-id', (req, res) => {
   }
   res.json({ client_id: GITHUB_CLIENT_ID })
 })
+
+// Initiate server-side OAuth flow. Creates a session and returns the GitHub authorize URL.
+// The `flow` query param ('web' | 'desktop') determines post-auth behavior.
+app.get('/api/auth/github/authorize', async (req, res) => {
+  const flow = (req.query.flow as string) === 'desktop' ? 'desktop' : 'web'
+
+  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+    return res.status(500).json({ error: 'GitHub OAuth is not configured' })
+  }
+
+  try {
+    const sessionId = crypto.randomBytes(32).toString('hex')
+    const state = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+
+    await OAuthSession.create({ sessionId, state, flow, status: 'pending', expiresAt })
+
+    const redirectUri = `${BACKEND_URL}/api/auth/github/callback`
+    const authUrl =
+      `https://github.com/login/oauth/authorize` +
+      `?client_id=${encodeURIComponent(GITHUB_CLIENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&scope=repo` +
+      `&state=${encodeURIComponent(state)}`
+
+    res.json({ authUrl, sessionId })
+  } catch (error) {
+    console.error('Failed to create OAuth session:', error)
+    Sentry.captureException(error)
+    res.status(500).json({ error: 'Failed to initiate OAuth flow' })
+  }
+})
+
+// GitHub OAuth callback — hit by GitHub's redirect after user authorizes.
+// Exchanges the code for a token, stores it in the session, then either
+// redirects the browser (web) or shows a completion page (desktop).
+app.get('/api/auth/github/callback', async (req, res) => {
+  const { code, state, error: ghError } = req.query as Record<string, string>
+
+  if (ghError) {
+    return res.status(400).send(oauthResultPage(false, 'Authorization was denied by the user.'))
+  }
+
+  if (!code || !state) {
+    return res.status(400).send(oauthResultPage(false, 'Missing authorization code or state parameter.'))
+  }
+
+  try {
+    const session = await OAuthSession.findOne({ state, status: 'pending' })
+
+    if (!session) {
+      return res.status(400).send(oauthResultPage(false, 'Invalid or expired OAuth session. Please try again.'))
+    }
+
+    if (new Date() > session.expiresAt) {
+      await OAuthSession.deleteOne({ _id: session._id })
+      return res.status(400).send(oauthResultPage(false, 'OAuth session expired. Please try again.'))
+    }
+
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+      }),
+    })
+
+    const tokenData = await tokenResponse.json() as any
+
+    if (tokenData.error) {
+      await OAuthSession.deleteOne({ _id: session._id })
+      return res.status(400).send(
+        oauthResultPage(false, tokenData.error_description || 'GitHub token exchange failed.')
+      )
+    }
+
+    session.accessToken = tokenData.access_token
+    session.status = 'completed'
+    await session.save()
+
+    if (session.flow === 'web') {
+      return res.redirect(`${FRONTEND_URL}/auth/callback?session_id=${session.sessionId}`)
+    }
+
+    // Desktop flow — render a self-contained success page
+    return res.send(oauthResultPage(true))
+  } catch (error) {
+    console.error('OAuth callback error:', error)
+    Sentry.captureException(error)
+    return res.status(500).send(oauthResultPage(false, 'An unexpected error occurred.'))
+  }
+})
+
+// Retrieve the access token for a completed OAuth session (one-time use).
+// After retrieval the session is marked consumed so the token can't be read again.
+app.get('/api/auth/github/session/:sessionId', async (req, res) => {
+  const { sessionId } = req.params
+
+  if (!sessionId || typeof sessionId !== 'string' || sessionId.length !== 64) {
+    return res.status(400).json({ error: 'Invalid session ID' })
+  }
+
+  try {
+    const session = await OAuthSession.findOne({ sessionId })
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found', status: 'not_found' })
+    }
+
+    if (new Date() > session.expiresAt) {
+      await OAuthSession.deleteOne({ _id: session._id })
+      return res.status(410).json({ error: 'Session expired', status: 'expired' })
+    }
+
+    if (session.status === 'consumed') {
+      return res.status(410).json({ error: 'Session already consumed', status: 'consumed' })
+    }
+
+    if (session.status === 'pending') {
+      return res.json({ status: 'pending' })
+    }
+
+    // status === 'completed' — deliver the token and consume the session
+    const accessToken = session.accessToken
+    session.status = 'consumed'
+    session.accessToken = null
+    await session.save()
+
+    return res.json({ status: 'completed', access_token: accessToken })
+  } catch (error) {
+    console.error('Session retrieval error:', error)
+    Sentry.captureException(error)
+    return res.status(500).json({ error: 'Failed to retrieve session' })
+  }
+})
+
+/** Render a minimal, self-contained HTML page for the OAuth callback result. */
+function oauthResultPage(success: boolean, errorMessage?: string): string {
+  if (success) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Successful — ReviewGPT</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh;
+           background: #fafafa; color: #1f2328; }
+    .card { text-align: center; padding: 48px 40px; max-width: 420px; }
+    .icon { width: 56px; height: 56px; border-radius: 50%; background: #dafbe1;
+            display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
+    .icon svg { color: #1a7f37; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    p { font-size: 14px; color: #656d76; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+    <h1>You're all set!</h1>
+    <p>Authentication was successful. You can close this tab and return to ReviewGPT.</p>
+  </div>
+</body>
+</html>`
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Failed — ReviewGPT</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh;
+           background: #fafafa; color: #1f2328; }
+    .card { text-align: center; padding: 48px 40px; max-width: 420px; }
+    .icon { width: 56px; height: 56px; border-radius: 50%; background: #ffebe9;
+            display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
+    .icon svg { color: #cf222e; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    p { font-size: 14px; color: #656d76; line-height: 1.5; margin-bottom: 12px; }
+    .error-detail { font-size: 13px; color: #cf222e; background: #ffebe9; padding: 10px 16px;
+                    border-radius: 8px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/>
+        <line x1="9" y1="9" x2="15" y2="15"/>
+      </svg>
+    </div>
+    <h1>Authentication failed</h1>
+    <p>Something went wrong during sign-in.</p>
+    <div class="error-detail">${errorMessage || 'Unknown error'}</div>
+  </div>
+</body>
+</html>`
+}
 
 // Get current user (validate token)
 app.get('/api/auth/me', async (req, res) => {

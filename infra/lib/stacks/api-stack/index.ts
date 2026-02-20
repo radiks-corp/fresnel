@@ -95,6 +95,7 @@ export class ApiStack extends Stack {
             PORT: '3001',
             NODE_ENV: 'production',
             FRONTEND_URL: 'https://app.reviewgpt.ca',
+            BACKEND_URL: 'https://api.reviewgpt.ca',
           },
           secrets: apiSecrets.secrets(),
         },
