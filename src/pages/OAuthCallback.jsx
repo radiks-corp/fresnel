@@ -23,7 +23,17 @@ export default function OAuthCallback() {
     // New session-based flow (server-side callback)
     if (sessionId) {
       fetch(`${API_URL}/api/auth/github/session/${sessionId}`)
-        .then(res => res.json())
+        .then(async (res) => {
+          if (!res.ok) {
+            const contentType = res.headers.get('content-type') || ''
+            if (contentType.includes('application/json')) {
+              const errData = await res.json()
+              throw new Error(errData.error || 'Authentication failed')
+            }
+            throw new Error(`Server returned ${res.status}`)
+          }
+          return res.json()
+        })
         .then(async (data) => {
           if (data.status === 'completed' && data.access_token) {
             const success = await loginWithOAuth(data.access_token)
@@ -36,7 +46,7 @@ export default function OAuthCallback() {
             setError(data.error || 'Authentication session is invalid or expired')
           }
         })
-        .catch(() => setError('Network error during authentication'))
+        .catch((err) => setError(err.message || 'Network error during authentication'))
       return
     }
 

@@ -54,10 +54,21 @@ export default function OnboardingModal() {
     try {
       const flow = isElectron() ? 'desktop' : 'web'
       const res = await fetch(`${API_URL}/api/auth/github/authorize?flow=${flow}`)
-      const { authUrl, sessionId } = await res.json()
+
+      if (!res.ok) {
+        const msg = res.status === 404
+          ? 'OAuth endpoint not available. The backend may need to be redeployed.'
+          : 'Failed to start OAuth flow. Please try again.'
+        setOauthError(msg)
+        setOauthLoading(false)
+        return
+      }
+
+      const data = await res.json()
+      const { authUrl, sessionId } = data
 
       if (!authUrl || !sessionId) {
-        setOauthError('Failed to start OAuth flow. Please try again.')
+        setOauthError(data.error || 'Failed to start OAuth flow. Please try again.')
         setOauthLoading(false)
         return
       }
@@ -68,6 +79,11 @@ export default function OnboardingModal() {
         pollingRef.current = setInterval(async () => {
           try {
             const sessionRes = await fetch(`${API_URL}/api/auth/github/session/${sessionId}`)
+            if (!sessionRes.ok && sessionRes.status !== 404) return // transient error, keep polling
+
+            const contentType = sessionRes.headers.get('content-type') || ''
+            if (!contentType.includes('application/json')) return // non-JSON (e.g. HTML 404), keep polling
+
             const data = await sessionRes.json()
 
             if (data.status === 'completed' && data.access_token) {
