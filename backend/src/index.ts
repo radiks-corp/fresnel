@@ -52,8 +52,9 @@ const app = express()
 const PORT = process.env.PORT || 3001
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fresnel'
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001'
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+const FRONTEND_URL = process.env.FRONTEND_URL || (IS_PRODUCTION ? 'https://app.reviewgpt.ca' : 'http://localhost:5173')
+const BACKEND_URL = process.env.BACKEND_URL || (IS_PRODUCTION ? 'https://api.reviewgpt.ca' : 'http://localhost:3001')
 
 /**
  * Validate and sanitize GitHub owner/repo names to prevent injection attacks
@@ -194,6 +195,19 @@ app.get('/health', (req, res) => {
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || ''
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || ''
 
+if (IS_PRODUCTION) {
+  const oauthProblems: string[] = []
+  if (!GITHUB_CLIENT_ID || GITHUB_CLIENT_ID === 'placeholder' || GITHUB_CLIENT_ID.startsWith('your_')) {
+    oauthProblems.push(`GITHUB_CLIENT_ID is not configured (got "${GITHUB_CLIENT_ID || '(empty)'}")`)
+  }
+  if (!GITHUB_CLIENT_SECRET || GITHUB_CLIENT_SECRET === 'placeholder' || GITHUB_CLIENT_SECRET.startsWith('your_')) {
+    oauthProblems.push('GITHUB_CLIENT_SECRET is not configured')
+  }
+  if (oauthProblems.length > 0) {
+    console.error('[STARTUP] GitHub OAuth misconfigured in production:', oauthProblems.join('; '))
+  }
+}
+
 // API routes
 app.get('/api', (req, res) => {
   res.json({ message: 'Fresnel API' })
@@ -254,7 +268,12 @@ app.get('/api/auth/github/client-id', (req, res) => {
 app.get('/api/auth/github/authorize', async (req, res) => {
   const flow = (req.query.flow as string) === 'desktop' ? 'desktop' : 'web'
 
-  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+  const isOAuthMisconfigured =
+    !GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET ||
+    GITHUB_CLIENT_ID === 'placeholder' || GITHUB_CLIENT_SECRET === 'placeholder' ||
+    GITHUB_CLIENT_ID.startsWith('your_') || GITHUB_CLIENT_SECRET.startsWith('your_')
+
+  if (isOAuthMisconfigured) {
     return res.status(500).json({ error: 'GitHub OAuth is not configured' })
   }
 
