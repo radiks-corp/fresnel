@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
 export default function OAuthCallback() {
   const [error, setError] = useState(null)
-  const { exchangeOAuthCode, isAuthenticated } = useAuth()
+  const { loginWithOAuth, exchangeOAuthCode, isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session_id')
     const code = params.get('code')
     const errorParam = params.get('error')
 
@@ -17,18 +20,39 @@ export default function OAuthCallback() {
       return
     }
 
-    if (!code) {
-      setError('No authorization code received')
+    // New session-based flow (server-side callback)
+    if (sessionId) {
+      fetch(`${API_URL}/api/auth/github/session/${sessionId}`)
+        .then(res => res.json())
+        .then(async (data) => {
+          if (data.status === 'completed' && data.access_token) {
+            const success = await loginWithOAuth(data.access_token)
+            if (success) {
+              navigate('/app', { replace: true })
+            } else {
+              setError('Failed to authenticate with GitHub')
+            }
+          } else {
+            setError(data.error || 'Authentication session is invalid or expired')
+          }
+        })
+        .catch(() => setError('Network error during authentication'))
       return
     }
 
-    exchangeOAuthCode(code).then(({ success, error: exchangeError }) => {
-      if (success) {
-        navigate('/app', { replace: true })
-      } else {
-        setError(exchangeError || 'Authentication failed')
-      }
-    })
+    // Legacy code-based flow (kept for backward compatibility)
+    if (code) {
+      exchangeOAuthCode(code).then(({ success, error: exchangeError }) => {
+        if (success) {
+          navigate('/app', { replace: true })
+        } else {
+          setError(exchangeError || 'Authentication failed')
+        }
+      })
+      return
+    }
+
+    setError('No authorization code or session received')
   }, [])
 
   useEffect(() => {

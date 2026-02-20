@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
 import '../app.css'
@@ -16,6 +16,8 @@ const TOKEN_SCOPES = [
 
 const PAT_STEPS = 3
 
+const isElectron = () => typeof window !== 'undefined' && window.electronAPI?.isElectron
+
 export default function OnboardingModal() {
   const [authChoice, setAuthChoice] = useState(null) // null = picker, 'oauth', 'pat'
   const [patInput, setPatInput] = useState('')
@@ -25,28 +27,71 @@ export default function OnboardingModal() {
   const [dismissing, setDismissing] = useState(false)
   const [patStep, setPatStep] = useState(0)
   const [oauthLoading, setOauthLoading] = useState(false)
+  const [oauthError, setOauthError] = useState('')
+  const pollingRef = useRef(null)
 
-  const { isAuthenticated, loading, login, validateToken } = useAuth()
+  const { isAuthenticated, loading, login, loginWithOAuth, validateToken } = useAuth()
+
+  // Clean up polling on unmount or when auth succeeds
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isAuthenticated && pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }, [isAuthenticated])
 
   const handleOAuthLogin = async () => {
     setOauthLoading(true)
-    trackEvent('OAuth Login Started', { source: 'onboarding' })
+    setOauthError('')
+    trackEvent('OAuth Login Started', { source: 'onboarding', flow: isElectron() ? 'desktop' : 'web' })
 
     try {
-      const res = await fetch(`${API_URL}/api/auth/github/client-id`)
-      const { client_id } = await res.json()
+      const flow = isElectron() ? 'desktop' : 'web'
+      const res = await fetch(`${API_URL}/api/auth/github/authorize?flow=${flow}`)
+      const { authUrl, sessionId } = await res.json()
 
-      const callbackUrl = `${window.location.origin}/auth/callback`
-      const scope = 'repo'
-      const githubUrl = `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scope}`
+      if (!authUrl || !sessionId) {
+        setOauthError('Failed to start OAuth flow. Please try again.')
+        setOauthLoading(false)
+        return
+      }
 
-      if (window.electronAPI?.openExternal) {
-        window.electronAPI.openExternal(githubUrl)
+      if (isElectron()) {
+        window.electronAPI.openExternal(authUrl)
+        // Poll the backend for session completion
+        pollingRef.current = setInterval(async () => {
+          try {
+            const sessionRes = await fetch(`${API_URL}/api/auth/github/session/${sessionId}`)
+            const data = await sessionRes.json()
+
+            if (data.status === 'completed' && data.access_token) {
+              clearInterval(pollingRef.current)
+              pollingRef.current = null
+              await loginWithOAuth(data.access_token)
+              setOauthLoading(false)
+            } else if (data.status !== 'pending') {
+              clearInterval(pollingRef.current)
+              pollingRef.current = null
+              setOauthError('Authentication session expired or was already used. Please try again.')
+              setOauthLoading(false)
+            }
+          } catch {
+            // Network blip — keep polling
+          }
+        }, 2000)
       } else {
-        window.open(githubUrl, '_blank', 'noopener,noreferrer')
+        // Web flow: navigate in the current tab; the backend callback will redirect back
+        window.location.href = authUrl
       }
     } catch (error) {
       console.error('Failed to start OAuth flow:', error)
+      setOauthError('Could not connect to the server. Please try again.')
       setOauthLoading(false)
     }
   }
@@ -104,6 +149,14 @@ export default function OnboardingModal() {
               <p className="onboarding-subdesc">
                 Choose how you'd like to authenticate. Both options give ReviewGPT the same access to your repositories.
               </p>
+
+              {oauthError && <p className="onboarding-error" style={{ marginBottom: 12 }}>{oauthError}</p>}
+
+              {oauthLoading && isElectron() && (
+                <p className="onboarding-subdesc" style={{ marginBottom: 12, fontStyle: 'italic' }}>
+                  Waiting for you to authorize in your browser...
+                </p>
+              )}
 
               <div className="auth-method-options">
                 <button
