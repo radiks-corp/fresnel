@@ -1,0 +1,97 @@
+.not-found-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #fafafa;
+  font-family: 'Barlow', sans-serif;
+  color: #18181b;
+  padding: 24px;
+}
+
+.not-found-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 420px;
+  animation: notFoundFadeIn 0.5s ease;
+}
+
+@keyframes notFoundFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.not-found-icon {
+  color: #a1a1aa;
+  margin-bottom: 20px;
+  animation: notFoundPulse 3s ease-in-out infinite;
+}
+
+@keyframes notFoundPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+.not-found-code {
+  font-size: 72px;
+  font-weight: 700;
+  letter-spacing: -2px;
+  line-height: 1;
+  background: linear-gradient(135deg, #18181b 0%, #71717a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.not-found-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #18181b;
+  margin-bottom: 8px;
+}
+
+.not-found-desc {
+  font-size: 15px;
+  color: #71717a;
+  line-height: 1.5;
+  margin-bottom: 28px;
+}
+
+.not-found-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 28px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: 'Barlow', sans-serif;
+  color: #fff;
+  background: #18181b;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.not-found-btn:hover {
+  background: #27272a;
+}
+
+.not-found-btn:active {
+  transform: scale(0.97);
+}
+
+.not-found-countdown {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #a1a1aa;
+}
