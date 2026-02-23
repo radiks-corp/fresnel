@@ -11,6 +11,7 @@ const InboxPage = lazy(() => import('./pages/InboxPage'))
 const IssuePage = lazy(() => import('./pages/IssuePage'))
 const AppLayout = lazy(() => import('./layouts/AppLayout'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ function App() {
                   <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
                   <Route path="/app/:repoId" element={<AppPage />} />
                 </Route>
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Suspense>
           </BrowserRouter>
@@ -92,6 +94,7 @@ function App() {
                 <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
                 <Route path="/app/:repoId" element={<AppPage />} />
               </Route>
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </BrowserRouter>
