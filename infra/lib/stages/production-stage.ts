@@ -7,6 +7,7 @@ import { CertificatesStack } from '../stacks/certificates-stack/index.js';
 import { CicdStack } from '../stacks/cicd-stack/index.js';
 import { DnsStack } from '../stacks/dns-stack/index.js';
 import { HomepageStack } from '../stacks/homepage-stack/index.js';
+import { OpenClawStack } from '../stacks/openclaw-stack/index.js';
 import { ReleasesStack } from '../stacks/releases-stack/index.js';
 
 interface ProductionStageProps extends Omit<StageProps, 'env'> {
@@ -76,6 +77,9 @@ export function productionStage(
     regionalCertificate: dnsStack.regionalCertificate,
     globalCertificate: certificatesStack.certificate,
   });
+
+  // OpenClaw: personal AI assistant on EC2 + Ansible
+  new OpenClawStack(scope, 'fresnel-openclaw-stack', { env });
 
   // CI/CD: deployer IAM role (OIDC)
   new CicdStack(scope, 'fresnel-cicd-stack', {
