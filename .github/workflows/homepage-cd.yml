@@ -21,7 +21,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::REDACTED_ACCOUNT_ID:role/fresnel-github-deploy
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/fresnel-github-deploy
           aws-region: us-east-1
 
       - name: Install Dependencies
@@ -51,7 +51,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::REDACTED_ACCOUNT_ID:role/fresnel-github-deploy
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/fresnel-github-deploy
           aws-region: us-east-1
 
       - name: Get CloudFront Distribution ID

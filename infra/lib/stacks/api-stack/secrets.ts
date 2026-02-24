@@ -3,6 +3,7 @@ import {
   aws_secretsmanager as secretsmanager,
   Stack,
 } from 'aws-cdk-lib';
+import { FRESNEL_PROD_ACCOUNT_ID } from '../../constants/accounts';
 
 /**
  * Fresnel API secrets managed in AWS Secrets Manager.
@@ -20,28 +21,31 @@ export class ApiSecrets {
   private readonly githubClientSecret: secretsmanager.ISecret;
 
   constructor(stack: Stack) {
+    const arn = (name: string, suffix: string) =>
+      `arn:aws:secretsmanager:us-east-1:${FRESNEL_PROD_ACCOUNT_ID}:secret:${name}-${suffix}`;
+
     this.anthropicApiKey = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'anthropic-api-key',
-      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/anthropic/api-key-67A6N0',
+      arn('prod/fresnel/api/env/anthropic/api-key', '67A6N0'),
     );
 
     this.mongodbUri = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'mongodb-uri',
-      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/mongo/uri-ZvuUmD',
+      arn('prod/fresnel/api/env/mongo/uri', 'ZvuUmD'),
     );
 
     this.githubClientId = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'github-client-id',
-      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/github/client-id-jcWWmp',
+      arn('prod/fresnel/api/env/github/client-id', 'jcWWmp'),
     );
 
     this.githubClientSecret = secretsmanager.Secret.fromSecretCompleteArn(
       stack,
       'github-client-secret',
-      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/api/env/github/client-secret-YPUFnR',
+      arn('prod/fresnel/api/env/github/client-secret', 'YPUFnR'),
     );
   }
 

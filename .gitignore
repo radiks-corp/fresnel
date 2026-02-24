@@ -20,6 +20,7 @@ out/
 
 # CDK
 infra/cdk.out/
+infra/cdk.context.json
 
 # Environment
 .env

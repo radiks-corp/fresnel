@@ -9,6 +9,7 @@ import {
   type StackProps,
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
+import { FRESNEL_PROD_ACCOUNT_ID } from '../../constants/accounts';
 
 /**
  * EC2 instance running OpenClaw via the official Ansible installer.
@@ -48,15 +49,18 @@ export class OpenClawStack extends Stack {
       ],
     });
 
+    const arn = (name: string, suffix: string) =>
+      `arn:aws:secretsmanager:us-east-1:${FRESNEL_PROD_ACCOUNT_ID}:secret:${name}-${suffix}`;
+
     const githubPat = secretsmanager.Secret.fromSecretCompleteArn(
       this,
       'github-pat',
-      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/openclaw/env/github-pat-OtY0vC',
+      arn('prod/fresnel/openclaw/env/github-pat', 'OtY0vC'),
     );
     const telegramBotToken = secretsmanager.Secret.fromSecretCompleteArn(
       this,
       'telegram-bot-token',
-      'arn:aws:secretsmanager:us-east-1:REDACTED_ACCOUNT_ID:secret:prod/fresnel/openclaw/env/telegram-bot-token-E6lCUq',
+      arn('prod/fresnel/openclaw/env/telegram-bot-token', 'E6lCUq'),
     );
     githubPat.grantRead(role);
     telegramBotToken.grantRead(role);
