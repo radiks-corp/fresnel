@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CaretRight, ChatCircle, Tag, X, ArrowSquareOut, XCircle, ArrowCounterClockwise } from '@phosphor-icons/react'
+import { CaretRight, ChatCircle, Tag, X, ArrowSquareOut, XCircle, ArrowCounterClockwise, CodeBlock, ArrowBendUpLeft, Trash, Warning } from '@phosphor-icons/react'
 import { useRepos } from '../hooks/useRepos'
 import { useOperationsStore } from '../stores/operationsStore'
 
@@ -28,9 +28,11 @@ function useRepoIdLookup() {
 export function OperationsBuffer({ operations, onReview }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [applyingAll, setApplyingAll] = useState(false)
+  const [confirmingClear, setConfirmingClear] = useState(false)
   const navigate = useNavigate()
   const resolveRepoId = useRepoIdLookup()
   const removeOperation = useOperationsStore((s) => s.removeOperation)
+  const clearAll = useOperationsStore((s) => s.clearAll)
   const executeAll = useOperationsStore((s) => s.executeAll)
 
   const handleApplyAll = useCallback(async (e) => {
@@ -50,7 +52,11 @@ export function OperationsBuffer({ operations, onReview }) {
   const handleRowClick = (op) => {
     const repoId = resolveRepoId(op.repo)
     if (!repoId) return
-    navigate(`/app/${repoId}/issues/${op.issueNumber}`)
+    if (op.prNumber) {
+      navigate(`/app/${repoId}/${op.prNumber}`)
+    } else {
+      navigate(`/app/${repoId}/issues/${op.issueNumber}`)
+    }
   }
 
   return (
@@ -67,21 +73,51 @@ export function OperationsBuffer({ operations, onReview }) {
           </span>
         </div>
         <div className="planned-updates-header-right">
-          <button
-            type="button"
-            className="planned-updates-apply-all-btn"
-            disabled={applyingAll}
-            onClick={handleApplyAll}
-          >
-            {applyingAll ? 'Applying...' : 'Apply all'}
-          </button>
-          <button
-            type="button"
-            className="planned-updates-review-btn"
-            onClick={(e) => { e.stopPropagation(); onReview?.() }}
-          >
-            Review
-          </button>
+          {confirmingClear ? (
+            <div className="planned-updates-confirm-clear" onClick={(e) => e.stopPropagation()}>
+              <Warning size={14} className="planned-updates-confirm-icon" />
+              <span className="planned-updates-confirm-text">Clear all {count} updates?</span>
+              <button
+                type="button"
+                className="planned-updates-confirm-yes"
+                onClick={() => { clearAll(); setConfirmingClear(false) }}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                className="planned-updates-confirm-no"
+                onClick={() => setConfirmingClear(false)}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="planned-updates-clear-all-btn"
+                onClick={(e) => { e.stopPropagation(); setConfirmingClear(true) }}
+              >
+                <Trash size={14} />
+              </button>
+              <button
+                type="button"
+                className="planned-updates-apply-all-btn"
+                disabled={applyingAll}
+                onClick={handleApplyAll}
+              >
+                {applyingAll ? 'Applying...' : 'Apply all'}
+              </button>
+              <button
+                type="button"
+                className="planned-updates-review-btn"
+                onClick={(e) => { e.stopPropagation(); onReview?.() }}
+              >
+                Review
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -105,14 +141,20 @@ export function OperationsBuffer({ operations, onReview }) {
  * Each row is clickable and navigates to the issue page.
  */
 export function UpdatesReviewView({ operations, onClose }) {
+  const [confirmingClear, setConfirmingClear] = useState(false)
   const navigate = useNavigate()
   const resolveRepoId = useRepoIdLookup()
   const removeOperation = useOperationsStore((s) => s.removeOperation)
+  const clearAll = useOperationsStore((s) => s.clearAll)
 
   const handleRowClick = (op) => {
     const repoId = resolveRepoId(op.repo)
     if (!repoId) return
-    navigate(`/app/${repoId}/issues/${op.issueNumber}`)
+    if (op.prNumber) {
+      navigate(`/app/${repoId}/${op.prNumber}`)
+    } else {
+      navigate(`/app/${repoId}/issues/${op.issueNumber}`)
+    }
   }
 
   return (
@@ -121,9 +163,40 @@ export function UpdatesReviewView({ operations, onClose }) {
         <span className="updates-review-title">
           Planned Updates ({operations.length})
         </span>
-        <button className="updates-review-close" onClick={onClose}>
-          <X size={16} />
-        </button>
+        <div className="updates-review-header-actions">
+          {confirmingClear ? (
+            <div className="planned-updates-confirm-clear">
+              <Warning size={14} className="planned-updates-confirm-icon" />
+              <span className="planned-updates-confirm-text">Clear all?</span>
+              <button
+                type="button"
+                className="planned-updates-confirm-yes"
+                onClick={() => { clearAll(); setConfirmingClear(false) }}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                className="planned-updates-confirm-no"
+                onClick={() => setConfirmingClear(false)}
+              >
+                No
+              </button>
+            </div>
+          ) : operations.length > 0 && (
+            <button
+              type="button"
+              className="planned-updates-clear-all-btn"
+              title="Clear all"
+              onClick={() => setConfirmingClear(true)}
+            >
+              <Trash size={14} />
+            </button>
+          )}
+          <button className="updates-review-close" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
       </div>
       <div className="updates-review-list">
         <AnimatedOperationList
@@ -201,6 +274,10 @@ function AnimatedOperationList({ operations, onRowClick, onDismiss }) {
  * Displays a single operation row. Clickable (navigates to the issue page).
  */
 function OperationRow({ operation, exiting, onClick, onDismiss }) {
+  const ref = operation.prNumber
+    ? `${operation.repo}#${operation.prNumber}`
+    : `${operation.repo}#${operation.issueNumber}`
+
   const getIcon = () => {
     switch (operation.type) {
       case 'comment':
@@ -212,6 +289,10 @@ function OperationRow({ operation, exiting, onClick, onDismiss }) {
         return <XCircle size={14} />
       case 'reopen_issue':
         return <ArrowCounterClockwise size={14} />
+      case 'review_comment':
+        return <CodeBlock size={14} />
+      case 'review_comment_reply':
+        return <ArrowBendUpLeft size={14} />
       default:
         return null
     }
@@ -220,21 +301,25 @@ function OperationRow({ operation, exiting, onClick, onDismiss }) {
   const getTitle = () => {
     switch (operation.type) {
       case 'comment':
-        return `Comment on ${operation.repo}#${operation.issueNumber}`
+        return `Comment on ${ref}`
       case 'set_labels':
-        return `Set labels on ${operation.repo}#${operation.issueNumber}`
+        return `Set labels on ${ref}`
       case 'add_labels':
-        return `Add labels to ${operation.repo}#${operation.issueNumber}`
+        return `Add labels to ${ref}`
       case 'close_issue': {
         const reason = operation.stateReason === 'duplicate' ? ' as duplicate'
           : operation.stateReason === 'not_planned' ? ' as not planned'
           : ''
-        return `Close${reason} ${operation.repo}#${operation.issueNumber}`
+        return `Close${reason} ${ref}`
       }
       case 'reopen_issue':
-        return `Reopen ${operation.repo}#${operation.issueNumber}`
+        return `Reopen ${ref}`
+      case 'review_comment':
+        return `Review comment on ${ref}`
+      case 'review_comment_reply':
+        return `Reply on ${ref}`
       default:
-        return `Operation on ${operation.repo}#${operation.issueNumber}`
+        return `Operation on ${ref}`
     }
   }
 
@@ -249,6 +334,11 @@ function OperationRow({ operation, exiting, onClick, onDismiss }) {
     if (operation.type === 'set_labels' || operation.type === 'add_labels') {
       return operation.labels?.join(', ') || 'No labels'
     }
+    if (operation.type === 'review_comment') {
+      const location = operation.path ? `${operation.path}${operation.line ? `:${operation.line}` : ''}` : ''
+      return location ? `${location} — ${operation.body}` : operation.body
+    }
+    if (operation.type === 'review_comment_reply') return operation.body
     return ''
   }
 
