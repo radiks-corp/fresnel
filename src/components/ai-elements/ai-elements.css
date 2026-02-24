@@ -752,6 +752,86 @@
   gap: 6px;
 }
 
+.planned-updates-clear-all-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  border: 1px solid #d0d7de;
+  background: transparent;
+  color: #656d76;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.planned-updates-clear-all-btn:hover {
+  background: #ffebe9;
+  color: #cf222e;
+  border-color: #cf222e;
+}
+
+.planned-updates-confirm-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: confirmFadeIn 0.15s ease-out;
+}
+
+@keyframes confirmFadeIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.planned-updates-confirm-icon {
+  color: #bf8700;
+  flex-shrink: 0;
+}
+
+.planned-updates-confirm-text {
+  font-size: 12px;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.planned-updates-confirm-yes {
+  padding: 2px 8px;
+  border: none;
+  background: #cf222e;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.planned-updates-confirm-yes:hover {
+  background: #a40e26;
+}
+
+.planned-updates-confirm-no {
+  padding: 2px 8px;
+  border: 1px solid #d0d7de;
+  background: #fff;
+  color: #57606a;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.planned-updates-confirm-no:hover {
+  background: #f6f8fa;
+}
+
+.updates-review-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .planned-updates-apply-all-btn {
   padding: 3px 10px;
   border: none;
