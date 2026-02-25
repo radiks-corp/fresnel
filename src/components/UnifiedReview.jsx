@@ -6,7 +6,6 @@ import { SpinnerGap, Check, CaretDown, ArrowLeft, ArrowUp, ChatCircle, Wrench, X
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -60,7 +59,7 @@ function MessageResponse({ children }) {
     <div className="ai-message-response">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        rehypePlugins={[rehypeSanitize]}
         components={{
           table: TableWrapper,
           // Strip the <pre> wrapper when it contains a syntax-highlighted block
@@ -211,7 +210,7 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
         </span>
       </div>
       <div className="review-comment-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
           {comment.body}
         </ReactMarkdown>
       </div>
@@ -718,7 +717,7 @@ export default function UnifiedReview({
                   <span className="pending-view-line">{comment.startLine ? `L${comment.startLine}-L${comment.line}` : `L${comment.line}`}</span>
                 </div>
                 <div className="pending-view-item-body">
-                  <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body}</ReactMarkdown>
+                  <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{comment.body}</ReactMarkdown>
                 </div>
               </div>
             ))}
