@@ -7,8 +7,9 @@ import express from 'express'
 import cors from 'cors'
 import mongoose from 'mongoose'
 import dotenv from 'dotenv'
-import { anthropic } from '@ai-sdk/anthropic'
-import { streamText, tool, stepCountIs, convertToModelMessages } from 'ai'
+import { anthropic, createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
+import { streamText, tool, stepCountIs, convertToModelMessages, type LanguageModel } from 'ai'
 import { getTokenizer } from '@anthropic-ai/tokenizer'
 import { z } from 'zod'
 
@@ -173,6 +174,93 @@ async function checkAndDecrementQuota(token: string): Promise<string> {
 
   if (!updated) throw new QuotaExceededError()
   return username
+}
+
+type AIProvider = 'anthropic' | 'openai'
+
+const ANTHROPIC_MODELS = [
+  'claude-sonnet-4-6',
+  'claude-sonnet-4-20250514',
+  'claude-haiku-4-5-20250514',
+  'claude-opus-4-6',
+] as const
+
+const OPENAI_MODELS = [
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'o3',
+  'o3-mini',
+  'gpt-5.3-codex',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-mini',
+] as const
+
+const ALLOWED_MODELS = new Set<string>([...ANTHROPIC_MODELS, ...OPENAI_MODELS])
+
+interface ResolvedModel {
+  model: LanguageModel
+  provider: AIProvider
+  isByok: boolean
+  providerOptions: Record<string, any>
+}
+
+/**
+ * Resolve which AI model + provider to use based on request headers.
+ *
+ * BYOK headers (all optional):
+ *   X-AI-Provider: "anthropic" | "openai"
+ *   X-AI-API-Key:  the user's own API key
+ *   X-AI-Model:    a model id from the allowed list
+ *
+ * When no BYOK headers are present, falls back to the server's default
+ * Anthropic key and claude-sonnet-4-6.
+ */
+function resolveModel(req: any, defaultModel?: string): ResolvedModel {
+  const providerHeader = (req.headers['x-ai-provider'] as string || '').toLowerCase()
+  const apiKey = req.headers['x-ai-api-key'] as string | undefined
+  const modelHeader = req.headers['x-ai-model'] as string | undefined
+
+  const isByok = !!(providerHeader && apiKey)
+
+  if (isByok) {
+    const provider = providerHeader as AIProvider
+    const modelId = (modelHeader && ALLOWED_MODELS.has(modelHeader)) ? modelHeader : undefined
+
+    if (provider === 'openai') {
+      const openai = createOpenAI({ apiKey })
+      const model = openai(modelId || 'gpt-4.1')
+      return {
+        model,
+        provider: 'openai',
+        isByok: true,
+        providerOptions: {},
+      }
+    }
+
+    // Default to Anthropic for BYOK
+    const userAnthropic = createAnthropic({ apiKey })
+    const model = userAnthropic(modelId || 'claude-sonnet-4-6')
+    return {
+      model,
+      provider: 'anthropic',
+      isByok: true,
+      providerOptions: {
+        anthropic: { thinking: { type: 'enabled', budgetTokens: 10000 } },
+      },
+    }
+  }
+
+  // Default: use server's Anthropic key
+  const model = anthropic(defaultModel || 'claude-sonnet-4-6')
+  return {
+    model,
+    provider: 'anthropic',
+    isByok: false,
+    providerOptions: {
+      anthropic: { thinking: { type: 'enabled', budgetTokens: 10000 } },
+    },
+  }
 }
 
 // Middleware
@@ -547,6 +635,30 @@ app.get('/api/me', async (req, res) => {
     Sentry.captureException(error)
     res.status(500).json({ error: 'Failed to fetch user quota' })
   }
+})
+
+// Available AI providers and models for BYOK
+app.get('/api/providers', (_req, res) => {
+  res.json({
+    providers: [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        models: ANTHROPIC_MODELS.map(id => ({ id, name: id })),
+        defaultModel: 'claude-sonnet-4-6',
+        keyPlaceholder: 'sk-ant-api03-...',
+        keyUrl: 'https://console.anthropic.com/settings/keys',
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        models: OPENAI_MODELS.map(id => ({ id, name: id })),
+        defaultModel: 'gpt-4.1',
+        keyPlaceholder: 'sk-...',
+        keyUrl: 'https://platform.openai.com/api-keys',
+      },
+    ],
+  })
 })
 
 // Get user's repositories
@@ -1406,8 +1518,10 @@ async function handleChat(req: any, res: any) {
     return res.status(400).json({ error: error.message })
   }
 
-  // Check and decrement quota before doing any AI work
-  if (mongoose.connection.readyState === 1) {
+  const resolved = resolveModel(req)
+
+  // Only check quota for users on the default server key (not BYOK)
+  if (!resolved.isByok && mongoose.connection.readyState === 1) {
     try {
       await checkAndDecrementQuota(token)
     } catch (err: any) {
@@ -1895,16 +2009,12 @@ Repository: ${owner}/${repo}`
     const modelMessages = await convertToModelMessages(messages)
     
     const result = streamText({
-      model: anthropic('claude-sonnet-4-6'),
+      model: resolved.model,
       messages: modelMessages,
       system: systemPrompt,
       tools: chatTools,
       stopWhen: stepCountIs(10),
-      providerOptions: {
-        anthropic: {
-          thinking: { type: 'enabled', budgetTokens: 10000 },
-        },
-      },
+      providerOptions: resolved.providerOptions,
     })
 
     // Use the AI SDK's built-in UI message stream for useChat() compatibility
@@ -1947,8 +2057,10 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review', async (req, res) =
 
   const token = authHeader.slice(7)
 
-  // Check and decrement quota before doing any AI work
-  if (mongoose.connection.readyState === 1) {
+  const resolved = resolveModel(req)
+
+  // Only check quota for users on the default server key (not BYOK)
+  if (!resolved.isByok && mongoose.connection.readyState === 1) {
     try {
       await checkAndDecrementQuota(token)
     } catch (err: any) {
@@ -2176,16 +2288,12 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
       : `Review this PR with focus: ${lens}. Find issues and call create_comment for each one.`
 
     const result = streamText({
-      model: anthropic('claude-sonnet-4-6'),
+      model: resolved.model,
       messages: [{ role: 'user', content: userMessage }],
       system: systemPrompt,
       tools,
       stopWhen: stepCountIs(10),
-      providerOptions: {
-        anthropic: {
-          thinking: { type: 'enabled', budgetTokens: 10000 },
-        },
-      },
+      providerOptions: resolved.providerOptions,
     })
 
     result.pipeUIMessageStreamToResponse(res, {
@@ -2233,8 +2341,11 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review/summarize', async (r
   try {
     const { generateText } = await import('ai')
 
+    const summaryDefault = req.headers['x-ai-provider'] === 'openai' ? 'gpt-4.1-nano' : 'claude-sonnet-4-20250514'
+    const resolved = resolveModel(req, summaryDefault)
+
     const result = await generateText({
-      model: anthropic('claude-sonnet-4-20250514'),
+      model: resolved.model,
       system: 'You summarize code review findings in 1-2 concise sentences. Be specific about the most important issues. Do not use bullet points. Do not start with "The review" or "This review". Just state the findings directly.',
       prompt: `Summarize these ${items.length} review findings:\n${compactList}`,
       maxOutputTokens: 150,

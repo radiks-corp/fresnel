@@ -14,6 +14,7 @@ import ScrollToBottom from 'react-scroll-to-bottom'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useSidebarContext } from '../contexts/SidebarContext'
 import { useOperationsStore } from '../stores/operationsStore'
+import { useProviderStore } from '../stores/providerStore'
 import { OperationsBuffer, UpdatesReviewView } from './OperationsBuffer'
 import './ai-elements/ai-elements.css'
 
@@ -307,6 +308,8 @@ export default function UnifiedReview({
     ? `${API_URL}/api/repos/${owner}/${repo}/pulls/${prNumber}/review`
     : null
 
+  const providerHeaders = useProviderStore(s => s.getHeaders)
+
   // Separate transport for Ask (chat)
   const chatTransport = useMemo(() => {
     if (!chatApiUrl) return null
@@ -314,9 +317,10 @@ export default function UnifiedReview({
       api: chatApiUrl,
       headers: () => ({
         'Authorization': `Bearer ${getToken()}`,
+        ...providerHeaders(),
       }),
     })
-  }, [chatApiUrl])
+  }, [chatApiUrl, providerHeaders])
 
   // Separate transport for Review
   const reviewTransport = useMemo(() => {
@@ -325,9 +329,10 @@ export default function UnifiedReview({
       api: reviewApiUrl,
       headers: () => ({
         'Authorization': `Bearer ${getToken()}`,
+        ...providerHeaders(),
       }),
     })
-  }, [reviewApiUrl])
+  }, [reviewApiUrl, providerHeaders])
 
   // Operations buffer for Ask mode (global Zustand store)
   const operations = useOperationsStore((s) => s.operations)
@@ -455,6 +460,7 @@ export default function UnifiedReview({
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...providerHeaders(),
         },
         body: JSON.stringify({ items }),
       })
@@ -930,7 +936,10 @@ export default function UnifiedReview({
             </div>
             <h3 className="quota-modal-title">Usage limit reached</h3>
             <p className="quota-modal-desc">
-              You've used all your free AI completions. Reach out and I'll top you up.
+              You've used all your free AI completions. Add your own API key in Settings for unlimited usage, or reach out to get topped up.
+            </p>
+            <p className="quota-modal-desc" style={{ fontSize: '12px', marginTop: '4px' }}>
+              Go to your profile menu &rarr; <strong>AI Provider Settings</strong> to connect your Anthropic or OpenAI key.
             </p>
             <a
               href="mailto:me@mitchellhynes.com?subject=ReviewGPT%20usage%20limit"
