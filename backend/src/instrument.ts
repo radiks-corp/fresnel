@@ -16,6 +16,13 @@ Sentry.init({
   sendDefaultPii: true,
   
   environment: process.env.NODE_ENV || 'development',
+
+  beforeSend(event) {
+    if (event.request?.headers) {
+      delete event.request.headers['x-ai-api-key']
+    }
+    return event
+  },
 })
 
 export { Sentry }
