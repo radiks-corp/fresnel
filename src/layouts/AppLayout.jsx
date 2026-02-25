@@ -7,7 +7,9 @@ import { useRepos } from '../hooks/useRepos'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useBackendHealth } from '../hooks/useBackendHealth'
 import { useOperationsStore } from '../stores/operationsStore'
+import { useProviderStore } from '../stores/providerStore'
 import ReviewSidebar from '../components/ReviewSidebar'
+import ProviderSettings from '../components/ProviderSettings'
 import SidebarContext from '../contexts/SidebarContext'
 import { StatusBanner } from '../components/StatusBanner'
 import { apiFetch } from '../hooks/useGitHubAPI'
@@ -41,6 +43,8 @@ export default function AppLayout() {
   const [isOmnibarOpen, setIsOmnibarOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [completionsLeft, setCompletionsLeft] = useState(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const isByok = useProviderStore(s => s.isByok())
   const profileRef = useRef(null)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const omnibarRef = useRef(null)
@@ -376,14 +380,27 @@ export default function AppLayout() {
                       <div className="profile-dropdown-row">
                         <span
                           className="profile-quota-dot"
-                          style={{ background: completionsLeft != null ? quotaDotColor(completionsLeft) : '#d1d5db' }}
+                          style={{ background: isByok ? '#0969da' : (completionsLeft != null ? quotaDotColor(completionsLeft) : '#d1d5db') }}
                         />
                         <span className="profile-dropdown-label">
-                          {completionsLeft != null
-                            ? <><strong>{completionsLeft}</strong> AI completions left</>
-                            : 'Loading quota…'}
+                          {isByok
+                            ? <>Using own API key <span className="profile-byok-badge">BYOK</span></>
+                            : completionsLeft != null
+                              ? <><strong>{completionsLeft}</strong> AI completions left</>
+                              : 'Loading quota…'}
                         </span>
                       </div>
+
+                      <button
+                        className="profile-dropdown-settings"
+                        onClick={() => { setProfileOpen(false); setSettingsOpen(true) }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        AI Provider Settings
+                      </button>
 
                       <div className="profile-dropdown-divider" />
 
@@ -402,6 +419,7 @@ export default function AppLayout() {
           <Outlet />
         </div>
       </div>
+      <ProviderSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </SidebarContext.Provider>
   )
 }
