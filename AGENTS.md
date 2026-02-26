@@ -25,6 +25,10 @@ Fresnel (branded **ReviewGPT**) is an AI-powered GitHub code review workspace. I
 
 The backend starts and serves API routes even without valid GitHub OAuth credentials or `ANTHROPIC_API_KEY`. OAuth and AI features will fail gracefully.
 
+### Authentication
+
+The app supports two auth methods: GitHub OAuth and Personal Access Token (PAT). In cloud dev environments without OAuth credentials, use a PAT (`$GITHUB_PAT` env var). To inject a PAT into the browser, set `github_token`, `github_auth_method` (to `pat`), and `github_pat` in `localStorage`, then reload. Alternatively, navigate the PAT onboarding flow in the UI.
+
 ### Gotchas
 
 - The backend `npm run lint` script references `eslint src --ext .ts` but no ESLint config file (`.eslintrc*`) exists in `backend/`. It will fail with a parse error. The root project has `eslint.config.js` (flat config) that works with `npx eslint .`.
