@@ -270,16 +270,18 @@ export default function AppLayout() {
         message={!isConnected ? 'Unable to connect to backend server. Some features may be unavailable.' : ''}
         onDismiss={() => {}}
       />
-      <div className="app-shell">
-        <ReviewSidebar
-          owner={selectedRepo?.owner?.login}
-          repo={selectedRepo?.name}
-          repoId={repoId || inboxRepoId}
-          prNumber={prNumber ? parseInt(prNumber) : undefined}
-          chatKey={`${repoId || inboxRepoId}-${prNumber}`}
-          userAvatar={user?.avatar_url}
-          userName={user?.name || user?.login}
-        />
+      <div className={`app-shell${repoId ? '' : ' no-sidebar'}`}>
+        {repoId && (
+          <ReviewSidebar
+            owner={selectedRepo?.owner?.login}
+            repo={selectedRepo?.name}
+            repoId={repoId || inboxRepoId}
+            prNumber={prNumber ? parseInt(prNumber) : undefined}
+            chatKey={`${repoId || inboxRepoId}-${prNumber}`}
+            userAvatar={user?.avatar_url}
+            userName={user?.name || user?.login}
+          />
+        )}
         <div className="app-shell-content">
           {/* Repo selector bar — only on inbox (no repoId) */}
           {!repoId && (

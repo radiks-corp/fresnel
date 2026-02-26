@@ -8,6 +8,10 @@
   font-family: 'Barlow', sans-serif;
 }
 
+.app-shell.no-sidebar {
+  grid-template-columns: 1fr;
+}
+
 .app-shell>.review-sidebar {
   grid-column: 1;
   grid-row: 1;

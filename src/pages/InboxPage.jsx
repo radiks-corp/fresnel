@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useRepos } from '../hooks/useRepos'
-import { useInboxIssues, useInboxPulls } from '../hooks/useInboxItems'
+import { useInboxPulls } from '../hooks/useInboxItems'
 import { useSidebarContext } from '../contexts/SidebarContext'
 import { MagnifyingGlass, CaretDown, CaretLineLeft, CaretLineRight, ArrowUp } from '@phosphor-icons/react'
 import OnboardingModal from '../components/OnboardingModal'
@@ -87,6 +87,14 @@ export default function InboxPage() {
     })
   }, [selectedRepo, navigate])
 
+  const navigateToChat = useCallback(() => {
+    if (!selectedRepo) return
+    trackEvent('Inbox Chat Clicked', {
+      repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
+    })
+    navigate(`/app/${selectedRepo.id}`)
+  }, [selectedRepo, navigate])
+
   if (loading) return null
 
   const activeFilterLabel = REVIEW_FILTERS.find(f => f.value === reviewFilter)?.label || 'All'
@@ -94,15 +102,13 @@ export default function InboxPage() {
   return (
     <div className="inbox-layout">
       <div className="inbox-container">
-        {/* Chat prompt area */}
+        {/* Chat prompt — navigates to chat screen */}
         <div className="inbox-chat-area">
-          <div className="inbox-chat-box">
-            <textarea
-              className="inbox-chat-input"
-              placeholder="Ask ReviewGPT to spot issues, review and search code"
-              rows={3}
-            />
-            <button className="inbox-chat-send">
+          <div className="inbox-chat-box" onClick={navigateToChat} role="button" tabIndex={0}>
+            <div className="inbox-chat-input-fake">
+              Ask ReviewGPT to spot issues, review and search code
+            </div>
+            <button className="inbox-chat-send" onClick={(e) => { e.stopPropagation(); navigateToChat() }}>
               <ArrowUp size={18} weight="bold" />
             </button>
           </div>

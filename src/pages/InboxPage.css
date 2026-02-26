@@ -33,28 +33,21 @@
   border-radius: 12px;
   overflow: hidden;
   transition: border-color 0.15s;
+  cursor: pointer;
 }
 
-.inbox-chat-box:focus-within {
+.inbox-chat-box:hover {
   border-color: #b0b0b0;
 }
 
-.inbox-chat-input {
-  display: block;
-  width: 100%;
+.inbox-chat-input-fake {
   padding: 16px 56px 16px 18px;
-  border: none;
-  outline: none;
-  resize: none;
   font-size: 15px;
   font-family: 'Barlow', sans-serif;
-  color: #1f2328;
-  background: transparent;
-  line-height: 1.5;
-}
-
-.inbox-chat-input::placeholder {
   color: #9ca3af;
+  line-height: 1.5;
+  min-height: 72px;
+  user-select: none;
 }
 
 .inbox-chat-send {
