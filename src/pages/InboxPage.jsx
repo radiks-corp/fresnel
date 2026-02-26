@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useRepos } from '../hooks/useRepos'
@@ -31,6 +31,7 @@ export default function InboxPage() {
   const { user, loading } = useAuth()
   const navigate = useNavigate()
   const { selectedRepo } = useSidebarContext()
+  const { repoBarProps } = useOutletContext() || {}
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300)
@@ -102,6 +103,53 @@ export default function InboxPage() {
   return (
     <div className="inbox-layout">
       <div className="inbox-container">
+        {/* Repo selector */}
+        {repoBarProps && (
+          <div className="inbox-repo-bar" ref={repoBarProps.omnibarRef}>
+            <button className="repo-bar-trigger" onClick={() => repoBarProps.setIsOmnibarOpen(o => !o)}>
+              <span className="repo-bar-name">
+                {repoBarProps.selectedRepo
+                  ? `${repoBarProps.selectedRepo.owner.login}/${repoBarProps.selectedRepo.name}`
+                  : 'Select repository'}
+              </span>
+              <CaretDown size={14} className="repo-bar-caret" />
+            </button>
+
+            {repoBarProps.isOmnibarOpen && (
+              <div className="repo-bar-dropdown">
+                <div className="repo-bar-search-row">
+                  <MagnifyingGlass size={14} className="omnibar-input-icon" />
+                  <input
+                    ref={repoBarProps.inputRef}
+                    type="text"
+                    className="omnibar-input"
+                    placeholder="Search repositories..."
+                    value={repoBarProps.repoSearchQuery}
+                    onChange={(e) => repoBarProps.setRepoSearchQuery(e.target.value)}
+                    onKeyDown={repoBarProps.handleOmnibarKeyDown}
+                  />
+                </div>
+                <div className="repo-bar-results">
+                  {repoBarProps.sortedFilteredRepos.map((repo, index) => (
+                    <div
+                      key={repo.id}
+                      ref={el => repoBarProps.itemRefs.current[index] = el}
+                      className={`repo-bar-item ${repoBarProps.highlightedIndex === index ? 'highlighted' : ''} ${repoBarProps.selectedRepo?.id === repo.id ? 'active' : ''}`}
+                      onClick={() => { repoBarProps.handleRepoSelect(repo); repoBarProps.closeOmnibar() }}
+                      onMouseEnter={() => repoBarProps.setHighlightedIndex(index)}
+                    >
+                      {repo.owner.login}/{repo.name}
+                    </div>
+                  ))}
+                  {repoBarProps.sortedFilteredRepos.length === 0 && (
+                    <div className="repo-bar-empty">No repositories found</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Chat prompt — navigates to chat screen */}
         <div className="inbox-chat-area">
           <div className="inbox-chat-box" onClick={navigateToChat} role="button" tabIndex={0}>

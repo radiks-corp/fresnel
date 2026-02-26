@@ -283,53 +283,24 @@ export default function AppLayout() {
           />
         )}
         <div className="app-shell-content">
-          {/* Repo selector bar — only on inbox (no repoId) */}
-          {!repoId && (
-            <div className="repo-bar" ref={omnibarRef}>
-              <button className="repo-bar-trigger" onClick={() => setIsOmnibarOpen(o => !o)}>
-                <span className="repo-bar-name">
-                  {selectedRepo
-                    ? `${selectedRepo.owner.login}/${selectedRepo.name}`
-                    : 'Select repository'}
-                </span>
-                <CaretDown size={14} className="repo-bar-caret" />
-              </button>
-
-              {isOmnibarOpen && (
-                <div className="repo-bar-dropdown">
-                  <div className="repo-bar-search-row">
-                    <MagnifyingGlass size={14} className="omnibar-input-icon" />
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      className="omnibar-input"
-                      placeholder="Search repositories..."
-                      value={repoSearchQuery}
-                      onChange={(e) => setRepoSearchQuery(e.target.value)}
-                      onKeyDown={handleOmnibarKeyDown}
-                    />
-                  </div>
-                  <div className="repo-bar-results">
-                    {sortedFilteredRepos.map((repo, index) => (
-                      <div
-                        key={repo.id}
-                        ref={el => itemRefs.current[index] = el}
-                        className={`repo-bar-item ${highlightedIndex === index ? 'highlighted' : ''} ${selectedRepo?.id === repo.id ? 'active' : ''}`}
-                        onClick={() => { handleRepoSelect(repo); closeOmnibar() }}
-                        onMouseEnter={() => setHighlightedIndex(index)}
-                      >
-                        {repo.owner.login}/{repo.name}
-                      </div>
-                    ))}
-                    {sortedFilteredRepos.length === 0 && (
-                      <div className="repo-bar-empty">No repositories found</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <Outlet />
+          <Outlet context={{
+            repoBarProps: !repoId ? {
+              omnibarRef,
+              isOmnibarOpen,
+              setIsOmnibarOpen,
+              selectedRepo,
+              inputRef,
+              repoSearchQuery,
+              setRepoSearchQuery,
+              handleOmnibarKeyDown,
+              sortedFilteredRepos,
+              highlightedIndex,
+              setHighlightedIndex,
+              handleRepoSelect,
+              closeOmnibar,
+              itemRefs,
+            } : null,
+          }} />
         </div>
       </div>
     </SidebarContext.Provider>

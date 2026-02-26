@@ -21,6 +21,12 @@
   padding: 0 24px;
 }
 
+/* Repo bar inside inbox */
+.inbox-repo-bar {
+  position: relative;
+  padding: 16px 0 0;
+}
+
 /* Chat prompt area */
 .inbox-chat-area {
   padding: 48px 0 32px;
