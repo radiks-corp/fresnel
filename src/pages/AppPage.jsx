@@ -205,10 +205,28 @@ function AppPage() {
     trackEvent('Page Viewed', { page: 'app' })
   }, [])
 
+  // --- Data fetching via react-query hooks ---
+  const owner = selectedRepo?.owner?.login
+  const repoName = selectedRepo?.name
+  const prNumber = selectedPR?.number
+
+  const {
+    data: pullRequestsData,
+    isLoading: loadingPRs,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = usePullRequests(owner, repoName)
+  const pullRequests = pullRequestsData?.pullRequests ?? []
+  const { data: diff = '', isLoading: loadingDiff } = usePRDiff(owner, repoName, prNumber)
+  const { data: prDetails = null, isLoading: loadingTimeline } = usePRDetails(owner, repoName, prNumber)
+  const { data: timeline = [] } = usePRTimeline(owner, repoName, prNumber)
+
   // Animate PR title from inbox position to final position
   useEffect(() => {
     const state = location.state
     if (!state?.fromInbox || !state?.titleRect || !titleRef.current) return
+    if (!prDetails) return
 
     const fromRect = state.titleRect
     const toRect = titleRef.current.getBoundingClientRect()
@@ -239,23 +257,6 @@ function AppPage() {
 
     window.history.replaceState({}, '')
   }, [location.state, prDetails])
-
-  // --- Data fetching via react-query hooks ---
-  const owner = selectedRepo?.owner?.login
-  const repoName = selectedRepo?.name
-  const prNumber = selectedPR?.number
-
-  const {
-    data: pullRequestsData,
-    isLoading: loadingPRs,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = usePullRequests(owner, repoName)
-  const pullRequests = pullRequestsData?.pullRequests ?? []
-  const { data: diff = '', isLoading: loadingDiff } = usePRDiff(owner, repoName, prNumber)
-  const { data: prDetails = null, isLoading: loadingTimeline } = usePRDetails(owner, repoName, prNumber)
-  const { data: timeline = [] } = usePRTimeline(owner, repoName, prNumber)
 
   const repoFullName = owner && repoName ? `${owner}/${repoName}` : ''
   const isOwnPR = !!(user?.login && prDetails?.user?.login && user.login === prDetails.user.login)
