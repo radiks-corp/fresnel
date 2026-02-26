@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Outlet, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { MagnifyingGlass, Folder } from '@phosphor-icons/react'
+import { MagnifyingGlass, Folder, CaretDown } from '@phosphor-icons/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { useRepos } from '../hooks/useRepos'
 import { trackEvent } from '../hooks/useAnalytics'
@@ -281,23 +281,21 @@ export default function AppLayout() {
           userName={user?.name || user?.login}
         />
         <div className="app-shell-content">
-          <header className="shared-header">
-            <div className="shared-header-left" />
-
-            <div className="omnibar" ref={omnibarRef}>
-              <button className="omnibar-trigger" onClick={openOmnibar}>
-                <MagnifyingGlass size={16} className="omnibar-search-icon" />
-                <span className="omnibar-text">
+          {/* Repo selector bar — only on inbox (no repoId) */}
+          {!repoId && (
+            <div className="repo-bar" ref={omnibarRef}>
+              <button className="repo-bar-trigger" onClick={() => setIsOmnibarOpen(o => !o)}>
+                <span className="repo-bar-name">
                   {selectedRepo
                     ? `${selectedRepo.owner.login}/${selectedRepo.name}`
-                    : 'Search repositories...'}
+                    : 'Select repository'}
                 </span>
-                <kbd className="omnibar-shortcut">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl '}K</kbd>
+                <CaretDown size={14} className="repo-bar-caret" />
               </button>
 
               {isOmnibarOpen && (
-                <div className="omnibar-panel">
-                  <div className="omnibar-input-row">
+                <div className="repo-bar-dropdown">
+                  <div className="repo-bar-search-row">
                     <MagnifyingGlass size={14} className="omnibar-input-icon" />
                     <input
                       ref={inputRef}
@@ -309,96 +307,26 @@ export default function AppLayout() {
                       onKeyDown={handleOmnibarKeyDown}
                     />
                   </div>
-                  <div className="omnibar-results">
-                    {sortedFilteredRepos.length > 0 ? (
-                      sortedFilteredRepos.map((repo, index) => (
-                        <div
-                          key={repo.id}
-                          ref={el => itemRefs.current[index] = el}
-                          className={`omnibar-item ${highlightedIndex === index ? 'highlighted' : ''}`}
-                          onClick={() => {
-                            handleRepoSelect(repo)
-                            closeOmnibar()
-                          }}
-                          onMouseEnter={() => setHighlightedIndex(index)}
-                        >
-                          <Folder size={16} className="omnibar-item-icon" />
-                          <span className="omnibar-item-name">
-                            {repo.owner.login}/{repo.name}
-                          </span>
-                          {repo.private && (
-                            <span className="omnibar-item-badge">Private</span>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="omnibar-empty">No repositories found</div>
+                  <div className="repo-bar-results">
+                    {sortedFilteredRepos.map((repo, index) => (
+                      <div
+                        key={repo.id}
+                        ref={el => itemRefs.current[index] = el}
+                        className={`repo-bar-item ${highlightedIndex === index ? 'highlighted' : ''} ${selectedRepo?.id === repo.id ? 'active' : ''}`}
+                        onClick={() => { handleRepoSelect(repo); closeOmnibar() }}
+                        onMouseEnter={() => setHighlightedIndex(index)}
+                      >
+                        {repo.owner.login}/{repo.name}
+                      </div>
+                    ))}
+                    {sortedFilteredRepos.length === 0 && (
+                      <div className="repo-bar-empty">No repositories found</div>
                     )}
                   </div>
                 </div>
               )}
             </div>
-
-            <div className="shared-header-right">
-              {user && (
-                <div className="profile-menu" ref={profileRef}>
-                  <button
-                    className="profile-menu-trigger"
-                    onClick={() => setProfileOpen(o => !o)}
-                    aria-label="Account menu"
-                  >
-                    <img
-                      src={user.avatar_url}
-                      alt={user.login}
-                      className="shared-header-avatar"
-                    />
-                  </button>
-
-                  {profileOpen && (
-                    <div className="profile-dropdown">
-                      <div className="profile-dropdown-user">
-                        <img src={user.avatar_url} alt={user.login} className="profile-dropdown-avatar" />
-                        <div className="profile-dropdown-info">
-                          <span className="profile-dropdown-name">{user.name || user.login}</span>
-                          <span className="profile-dropdown-login">@{user.login}</span>
-                        </div>
-                      </div>
-
-                      <div className="profile-dropdown-divider" />
-
-                      <div className="profile-dropdown-row">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="profile-dropdown-icon">
-                          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
-                        </svg>
-                        <span className="profile-dropdown-label">Signed in with GitHub</span>
-                      </div>
-
-                      <div className="profile-dropdown-row">
-                        <span
-                          className="profile-quota-dot"
-                          style={{ background: completionsLeft != null ? quotaDotColor(completionsLeft) : '#d1d5db' }}
-                        />
-                        <span className="profile-dropdown-label">
-                          {completionsLeft != null
-                            ? <><strong>{completionsLeft}</strong> AI completions left</>
-                            : 'Loading quota…'}
-                        </span>
-                      </div>
-
-                      <div className="profile-dropdown-divider" />
-
-                      <button
-                        className="profile-dropdown-logout"
-                        onClick={() => { setProfileOpen(false); logout(); trackEvent('User Logged Out via Menu') }}
-                      >
-                        Sign out
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </header>
+          )}
           <Outlet />
         </div>
       </div>

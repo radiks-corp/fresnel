@@ -1,78 +1,44 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useRepos } from '../hooks/useRepos'
 import { useInboxIssues, useInboxPulls } from '../hooks/useInboxItems'
 import { useSidebarContext } from '../contexts/SidebarContext'
-import { MagnifyingGlass, GitPullRequest, CircleDashed, Funnel, CaretDown, Check, X, SpinnerGap } from '@phosphor-icons/react'
-import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
+import { MagnifyingGlass, CaretDown, CaretLineLeft, CaretLineRight, ArrowUp } from '@phosphor-icons/react'
 import OnboardingModal from '../components/OnboardingModal'
 import './InboxPage.css'
 
 const REVIEW_FILTERS = [
-  { label: 'No reviews', value: 'no_reviews' },
+  { label: 'Awaiting review from you', value: 'awaiting_review_from_you' },
   { label: 'Review required', value: 'review_required' },
-  { label: 'Approved review', value: 'approved' },
+  { label: 'Approved', value: 'approved' },
   { label: 'Changes requested', value: 'changes_requested' },
   { label: 'Reviewed by you', value: 'reviewed_by_you' },
   { label: 'Not reviewed by you', value: 'not_reviewed_by_you' },
-  { label: 'Awaiting review from you', value: 'awaiting_review_from_you' },
-  { label: 'Awaiting review from you or your team', value: 'awaiting_review_from_you_or_team' },
 ]
 
-function formatTimeAgo(dateString) {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now - date
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 30) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
-
-function labelColor(color) {
-  if (!color) return {}
-  const r = parseInt(color.substring(0, 2), 16)
-  const g = parseInt(color.substring(2, 4), 16)
-  const b = parseInt(color.substring(4, 6), 16)
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return {
-    backgroundColor: `#${color}`,
-    color: luminance > 0.5 ? '#24292f' : '#fff',
-  }
-}
-
 export default function InboxPage() {
-  const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem('inboxActiveTab')
-    return saved || 'pulls'
-  })
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [reviewFilter, setReviewFilter] = useState(() => {
     return localStorage.getItem('inboxReviewFilter') ?? 'awaiting_review_from_you'
   })
+  const [showClosed, setShowClosed] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const filterRef = useRef(null)
 
   const { user, loading } = useAuth()
   const navigate = useNavigate()
   const { selectedRepo } = useSidebarContext()
-  // Debounce search query so we don't fire a request on every keystroke
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, activeTab])
+  }, [searchQuery])
 
-  // Data fetching via react-query hooks (search is handled server-side)
   const { data: repos = [], isLoading: loadingRepos } = useRepos()
-
   const activeRepos = selectedRepo ? [selectedRepo] : []
-  const { data: issues = [], isLoading: loadingIssues } = useInboxIssues(activeRepos, debouncedQuery)
   const {
     data: pullsData,
     isLoading: loadingPulls,
@@ -82,198 +48,155 @@ export default function InboxPage() {
   } = useInboxPulls(activeRepos, user?.login, debouncedQuery, reviewFilter)
   const pulls = pullsData?.pulls ?? []
   const pullsTotalCount = pullsData?.totalCount ?? 0
-  const pullsHasMore = pullsData?.hasMore ?? false
 
-  const loadingItems = loadingIssues || loadingPulls
+  useEffect(() => {
+    if (!filterOpen) return
+    const handleMouseDown = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) {
+        setFilterOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [filterOpen])
 
-  const handlePRClick = (pr) => {
+  const handlePRClick = useCallback((pr, e) => {
     if (!selectedRepo) return
+    const row = e.currentTarget
+    const titleEl = row.querySelector('.inbox-pr-title')
+    let titleRect = null
+    if (titleEl) {
+      titleRect = titleEl.getBoundingClientRect()
+    }
     trackEvent('Inbox PR Clicked', {
       repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
       pr_number: pr.number,
     })
-    navigate(`/app/${selectedRepo.id}/${pr.number}`)
-  }
-
-  const handleIssueClick = (issue) => {
-    if (!selectedRepo) return
-    trackEvent('Inbox Issue Clicked', {
-      repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
-      issue_number: issue.number,
+    navigate(`/app/${selectedRepo.id}/${pr.number}`, {
+      state: {
+        fromInbox: true,
+        prTitle: pr.title,
+        prNumber: pr.number,
+        titleRect: titleRect ? {
+          top: titleRect.top,
+          left: titleRect.left,
+          width: titleRect.width,
+          height: titleRect.height,
+        } : null,
+      },
     })
-    navigate(`/app/${selectedRepo.id}/issues/${issue.number}`)
-  }
-
-  // Items are already filtered server-side via GitHub Search API
-  const items = activeTab === 'issues' ? issues : pulls
+  }, [selectedRepo, navigate])
 
   if (loading) return null
+
+  const activeFilterLabel = REVIEW_FILTERS.find(f => f.value === reviewFilter)?.label || 'All'
 
   return (
     <div className="inbox-layout">
       <div className="inbox-container">
-        <div className="inbox-tabs-bar">
-          <button
-            className={`tab ${activeTab === 'pulls' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('pulls')
-              localStorage.setItem('inboxActiveTab', 'pulls')
-              trackEvent('Inbox Tab Changed', { tab: 'pulls' })
-            }}
-          >
-            Pull requests <span className="tab-count">{pullsTotalCount || pulls.length}</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('issues')
-              localStorage.setItem('inboxActiveTab', 'issues')
-              trackEvent('Inbox Tab Changed', { tab: 'issues' })
-            }}
-          >
-            Issues <span className="tab-count">{issues.length}</span>
-          </button>
-        </div>
-
-        <div className="inbox-toolbar">
-          <div className="inbox-search">
-            <MagnifyingGlass size={14} className="inbox-search-icon" />
-            <input
-              type="text"
-              placeholder={`Filter ${activeTab === 'issues' ? 'issues' : 'pull requests'}...`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="inbox-search-input"
+        {/* Chat prompt area */}
+        <div className="inbox-chat-area">
+          <div className="inbox-chat-box">
+            <textarea
+              className="inbox-chat-input"
+              placeholder="Ask ReviewGPT to spot issues, review and search code"
+              rows={3}
             />
-          </div>
-          <div className="inbox-toolbar-right">
-            {activeTab === 'pulls' && (
-              <Popover style={{ position: 'relative' }}>
-                <PopoverButton className={`inbox-review-filter-btn${reviewFilter ? ' active' : ''}`}>
-                  <Funnel size={13} weight={reviewFilter ? 'fill' : 'regular'} />
-                  {reviewFilter
-                    ? REVIEW_FILTERS.find((f) => f.value === reviewFilter)?.label
-                    : 'Reviews'}
-                  <CaretDown size={10} />
-                </PopoverButton>
-                <PopoverPanel className="inbox-review-filter-panel">
-                  {({ close }) => (
-                    <>
-                      <div className="inbox-review-filter-header">Filter by reviews</div>
-                      {reviewFilter && (
-                        <div
-                          className="inbox-review-filter-item clear"
-                          onClick={() => { setReviewFilter(null); localStorage.removeItem('inboxReviewFilter'); close() }}
-                        >
-                          <X size={12} />
-                          Clear filter
-                        </div>
-                      )}
-                      {REVIEW_FILTERS.map((f) => (
-                        <div
-                          key={f.value}
-                          className={`inbox-review-filter-item${reviewFilter === f.value ? ' active' : ''}`}
-                          onClick={() => { setReviewFilter(f.value); localStorage.setItem('inboxReviewFilter', f.value); close() }}
-                        >
-                          <span className="inbox-review-filter-check">
-                            {reviewFilter === f.value && <Check size={12} weight="bold" />}
-                          </span>
-                          {f.label}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </PopoverPanel>
-              </Popover>
-            )}
-            <span className="inbox-result-count">
-              {activeTab === 'pulls' && pullsTotalCount > pulls.length
-                ? `${pulls.length} of ${pullsTotalCount} pull requests`
-                : `${items.length} ${activeTab === 'issues' ? 'issue' : 'pull request'}${items.length !== 1 ? 's' : ''}`}
-            </span>
+            <button className="inbox-chat-send">
+              <ArrowUp size={18} weight="bold" />
+            </button>
           </div>
         </div>
 
+        {/* PR section header */}
+        <div className="inbox-section-header">
+          <div className="inbox-section-left">
+            <span className="inbox-section-title">Pull Requests</span>
+            <span className="inbox-section-count">{pullsTotalCount || pulls.length} open</span>
+          </div>
+          <div className="inbox-section-right">
+            <div className="inbox-filter-wrapper" ref={filterRef}>
+              <button
+                className="inbox-filter-btn"
+                onClick={() => setFilterOpen(o => !o)}
+              >
+                {activeFilterLabel}
+                <CaretDown size={12} />
+              </button>
+              {filterOpen && (
+                <div className="inbox-filter-dropdown">
+                  {REVIEW_FILTERS.map((f) => (
+                    <div
+                      key={f.value}
+                      className={`inbox-filter-item${reviewFilter === f.value ? ' active' : ''}`}
+                      onClick={() => {
+                        setReviewFilter(f.value)
+                        localStorage.setItem('inboxReviewFilter', f.value)
+                        setFilterOpen(false)
+                      }}
+                    >
+                      {f.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <label className="inbox-closed-toggle">
+              <span>Closed</span>
+              <div className={`toggle-track${showClosed ? ' on' : ''}`} onClick={() => setShowClosed(c => !c)}>
+                <div className="toggle-thumb" />
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Search bar */}
+        <div className="inbox-search-bar">
+          <MagnifyingGlass size={16} className="inbox-search-icon" />
+          <input
+            type="text"
+            placeholder="Search pull requests..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="inbox-search-input"
+          />
+          <div className="inbox-search-nav">
+            <button className="inbox-nav-btn" title="First page">
+              <CaretLineLeft size={14} />
+            </button>
+            <button className="inbox-nav-btn" title="Last page">
+              <CaretLineRight size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* PR list */}
         <div className="inbox-list">
-          {loadingRepos || loadingItems ? (
+          {loadingRepos || loadingPulls ? (
             <div className="inbox-empty">Loading...</div>
-          ) : items.length === 0 ? (
+          ) : pulls.length === 0 ? (
             <div className="inbox-empty">
               {searchQuery
-                ? `No ${activeTab === 'issues' ? 'issues' : 'pull requests'} matching "${searchQuery}"`
-                : `No open ${activeTab === 'issues' ? 'issues' : 'pull requests'}`}
+                ? `No pull requests matching "${searchQuery}"`
+                : 'No open pull requests'}
             </div>
           ) : (
-            <>
-            {items.map((item) => (
+            pulls.map((pr) => (
               <div
-                key={item.id}
-                className="inbox-row"
-                onClick={() => activeTab === 'pulls' ? handlePRClick(item) : handleIssueClick(item)}
+                key={pr.id}
+                className="inbox-pr-row"
+                onClick={(e) => handlePRClick(pr, e)}
               >
-                <div className="inbox-row-icon">
-                  {activeTab === 'pulls' ? (
-                    item.draft
-                      ? <GitPullRequest size={16} className="inbox-icon draft" />
-                      : <GitPullRequest size={16} className="inbox-icon open" />
-                  ) : (
-                    <CircleDashed size={16} className="inbox-icon issue-open" />
-                  )}
-                </div>
-
-                <div className="inbox-row-content">
-                  <div className="inbox-row-title-line">
-                    <span className="inbox-row-title">{item.title}</span>
-                    {item.labels?.map((label) => (
-                      <span key={label.id} className="inbox-label" style={labelColor(label.color)}>
-                        {label.name}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="inbox-row-meta">
-                    <span className="inbox-row-number">#{item.number}</span>
-                    <span className="inbox-row-sep">·</span>
-                    <span>{item.user?.login}</span>
-                    <span className="inbox-row-sep">·</span>
-                    <span>{formatTimeAgo(item.updated_at)}</span>
-                    {item.comments > 0 && (
-                      <>
-                        <span className="inbox-row-sep">·</span>
-                        <span className="inbox-row-comments">
-                          {item.comments} comment{item.comments !== 1 ? 's' : ''}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="inbox-row-right">
-                  {item.assignees?.length > 0 && (
-                    <div className="inbox-row-assignees">
-                      {item.assignees.slice(0, 3).map((a) => (
-                        <img key={a.id} src={a.avatar_url} alt={a.login} className="inbox-row-assignee" title={a.login} />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {pr.user?.avatar_url && (
+                  <img
+                    src={pr.user.avatar_url}
+                    alt={pr.user.login}
+                    className="inbox-pr-avatar"
+                  />
+                )}
+                <span className="inbox-pr-title">{pr.title}</span>
               </div>
-            ))}
-            {activeTab === 'pulls' && (pullsHasMore || (pullsTotalCount > 0 && pulls.length < pullsTotalCount)) && (
-              <div className="inbox-load-more-row">
-                <button
-                  className="inbox-load-more"
-                  onClick={() => fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                >
-                  {isFetchingNextPage ? (
-                    <><SpinnerGap size={14} className="spinning" /> Loading...</>
-                  ) : (
-                    'Load more'
-                  )}
-                </button>
-              </div>
-            )}
-            </>
+            ))
           )}
         </div>
       </div>
