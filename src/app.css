@@ -3141,6 +3141,11 @@
   line-height: 1.25;
   color: #1f2328;
   margin: 0 0 8px 0;
+  will-change: transform;
+}
+
+.pr-title-animating {
+  will-change: transform, opacity;
 }
 
 .pr-number-badge {

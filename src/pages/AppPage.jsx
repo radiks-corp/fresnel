@@ -183,6 +183,10 @@ function AppPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   
+  const [titleAnimating, setTitleAnimating] = useState(false)
+  const [titleStyle, setTitleStyle] = useState(null)
+  const titleRef = useRef(null)
+
   const { user, isAuthenticated, loading, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -200,6 +204,41 @@ function AppPage() {
   useEffect(() => {
     trackEvent('Page Viewed', { page: 'app' })
   }, [])
+
+  // Animate PR title from inbox position to final position
+  useEffect(() => {
+    const state = location.state
+    if (!state?.fromInbox || !state?.titleRect || !titleRef.current) return
+
+    const fromRect = state.titleRect
+    const toRect = titleRef.current.getBoundingClientRect()
+
+    const dx = fromRect.left - toRect.left
+    const dy = fromRect.top - toRect.top
+
+    setTitleStyle({
+      transform: `translate(${dx}px, ${dy}px)`,
+      transition: 'none',
+      opacity: 1,
+    })
+    setTitleAnimating(true)
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setTitleStyle({
+          transform: 'translate(0, 0)',
+          transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+          opacity: 1,
+        })
+        setTimeout(() => {
+          setTitleAnimating(false)
+          setTitleStyle(null)
+        }, 450)
+      })
+    })
+
+    window.history.replaceState({}, '')
+  }, [location.state, prDetails])
 
   // --- Data fetching via react-query hooks ---
   const owner = selectedRepo?.owner?.login
@@ -1138,7 +1177,11 @@ function AppPage() {
                 <>
                   {/* PR Header */}
                   <div className="pr-header-card">
-                    <h1>
+                    <h1
+                      ref={titleRef}
+                      style={titleStyle || undefined}
+                      className={titleAnimating ? 'pr-title-animating' : ''}
+                    >
                       {prDetails.title}
                       <span className="pr-number-badge">#{prDetails.number}</span>
                     </h1>
