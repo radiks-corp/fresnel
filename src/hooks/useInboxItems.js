@@ -1,4 +1,4 @@
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiFetch } from './useGitHubAPI'
 
 const PULLS_PER_PAGE = 30
@@ -23,17 +23,18 @@ export function useInboxIssues(repos, searchQuery = '') {
   })
 }
 
-export function useInboxPulls(repos, username, searchQuery = '', reviewFilter = null) {
+export function useInboxPulls(repos, username, searchQuery = '', reviewFilter = null, state = 'open') {
   const repoParam = repos?.length > 0 ? buildRepoParam(repos) : ''
 
   return useInfiniteQuery({
-    queryKey: ['inbox-pulls', repoParam, username, searchQuery, reviewFilter, PULLS_PER_PAGE],
+    queryKey: ['inbox-pulls', repoParam, username, searchQuery, reviewFilter, state, PULLS_PER_PAGE],
     queryFn: async ({ pageParam = 1 }) => {
       if (!repoParam || !username) return { items: [], hasNextPage: false, page: 1, totalCount: 0 }
 
       const params = new URLSearchParams({ repos: repoParam, username, page: String(pageParam), per_page: String(PULLS_PER_PAGE) })
       if (searchQuery.trim()) params.set('q', searchQuery.trim())
       if (reviewFilter) params.set('review_filter', reviewFilter)
+      if (state) params.set('state', state)
 
       const res = await apiFetch(`/api/inbox/pulls?${params}`)
       return res.json()
@@ -41,6 +42,7 @@ export function useInboxPulls(repos, username, searchQuery = '', reviewFilter = 
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.hasNextPage ? lastPage.page + 1 : undefined,
     enabled: !!repoParam && !!username,
+    placeholderData: keepPreviousData,
     select: (data) => {
       const allPulls = data.pages.flatMap((p) => p.items ?? [])
       const totalCount = data.pages[0]?.totalCount ?? 0

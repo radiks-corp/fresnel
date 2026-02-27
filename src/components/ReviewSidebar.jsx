@@ -1,6 +1,4 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft } from '@phosphor-icons/react'
 import UnifiedReview from './UnifiedReview'
 import './ReviewSidebar.css'
 
@@ -9,7 +7,7 @@ const MAX_WIDTH = 800
 const DEFAULT_WIDTH = 480
 
 function ReviewSidebar({ owner, repo, repoId, prNumber, chatKey, userAvatar, userName }) {
-  const navigate = useNavigate()
+
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
 
@@ -45,16 +43,7 @@ function ReviewSidebar({ owner, repo, repoId, prNumber, chatKey, userAvatar, use
 
   return (
     <aside className="review-sidebar" style={{ width }}>
-      <div className="review-header-bar">
-        <button
-          className="sidebar-back-btn"
-          onClick={() => navigate('/app')}
-          title="Back to inbox"
-        >
-          <ArrowLeft size={14} weight="bold" />
-        </button>
-      </div>
-
+      <div className="sidebar-drag-region" />
       <div className="review-content">
         <UnifiedReview 
           key={chatKey}

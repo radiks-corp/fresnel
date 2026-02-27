@@ -15,7 +15,7 @@ import remarkGfm from 'remark-gfm'
 import remarkEmoji from 'remark-emoji'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
-import { ArrowLeft, CaretDown, CaretRight, Check, CheckCircle, MagnifyingGlass, File, Folder, FolderOpen, Funnel, Pencil, SpinnerGap, Trash } from '@phosphor-icons/react'
+import { ArrowLeft, CaretDown, CaretRight, Check, CheckCircle, Pencil, SpinnerGap, Trash } from '@phosphor-icons/react'
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
@@ -25,6 +25,7 @@ import { usePRDetails } from '../hooks/usePRDetails'
 import { usePRTimeline } from '../hooks/usePRTimeline'
 import { apiFetch } from '../hooks/useGitHubAPI'
 import { useSidebarContext } from '../contexts/SidebarContext'
+import { InlineIssueCard } from '../components/UnifiedReview'
 import { useOperationsStore } from '../stores/operationsStore'
 import InlineCommentEditor from '../components/InlineCommentEditor'
 import OpenExternalButton from '../components/OpenExternalButton'
@@ -158,25 +159,19 @@ function parseDiff(diffText) {
 
 function AppPage() {
   const [selectedPR, setSelectedPR] = useState(null)
+  const [timelineExpanded, setTimelineExpanded] = useState(false)
 
-  const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem('appPageActiveTab')
-    return saved || 'conversation'
-  })
   const [viewedFiles, setViewedFiles] = useState({})
   const [collapsedFiles, setCollapsedFiles] = useState({})
   const [collapsedComments, setCollapsedComments] = useState({})
   const [replyingTo, setReplyingTo] = useState(null)
-  const [editingComment, setEditingComment] = useState(null) // pending comment id
-  const [editingReviewComment, setEditingReviewComment] = useState(null) // existing review comment id
-  const [commentEditorOpen, setCommentEditorOpen] = useState(null) // { file, startLine, endLine }
-  const [lineSelection, setLineSelection] = useState(null) // { file, startLine, endLine }
-  const dragRef = useRef(null) // { file, anchorLine } — tracks the mousedown origin
+  const [editingComment, setEditingComment] = useState(null)
+  const [editingReviewComment, setEditingReviewComment] = useState(null)
+  const [commentEditorOpen, setCommentEditorOpen] = useState(null)
+  const [lineSelection, setLineSelection] = useState(null)
+  const dragRef = useRef(null)
+  const submitDropdownRef = useRef(null)
   const [expandedHunks, setExpandedHunks] = useState({})
-  const [fileSearchQuery, setFileSearchQuery] = useState('')
-  const [collapsedFolders, setCollapsedFolders] = useState({})
-  const [selectedExtensions, setSelectedExtensions] = useState({})
-  const [hideViewedFiles, setHideViewedFiles] = useState(false)
   const [showSubmitDropdown, setShowSubmitDropdown] = useState(false)
   const [submitComment, setSubmitComment] = useState('')
   const [reviewType, setReviewType] = useState('comment')
@@ -188,7 +183,7 @@ function AppPage() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { prNumber: urlPrNumber } = useParams()
-  const { setSidebarData, selectedRepo } = useSidebarContext()
+  const { setSidebarData, selectedRepo, reviewIssues, dismissedIssues, appliedIssues, onDismissIssue, onApplyIssue, userAvatar: sidebarUserAvatar, userName: sidebarUserName } = useSidebarContext()
   // ── Buffered review comments from the global operations store ──
   const allOperations = useOperationsStore((s) => s.operations)
   const addOperation = useOperationsStore((s) => s.addOperation)
@@ -209,9 +204,6 @@ function AppPage() {
   const {
     data: pullRequestsData,
     isLoading: loadingPRs,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
   } = usePullRequests(owner, repoName)
   const pullRequests = pullRequestsData?.pullRequests ?? []
   const { data: diff = '', isLoading: loadingDiff } = usePRDiff(owner, repoName, prNumber)
@@ -271,7 +263,25 @@ function AppPage() {
   // Reset PR when repo changes
   useEffect(() => {
     setSelectedPR(null)
+    setTimelineExpanded(false)
   }, [selectedRepo?.id])
+
+  // Reset timeline expansion when PR changes
+  useEffect(() => {
+    setTimelineExpanded(false)
+  }, [prNumber])
+
+  // Close submit dropdown on outside click
+  useEffect(() => {
+    if (!showSubmitDropdown) return
+    const handleClickOutside = (e) => {
+      if (submitDropdownRef.current && !submitDropdownRef.current.contains(e.target)) {
+        setShowSubmitDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showSubmitDropdown])
 
   // Select PR from URL params once pulls load
   useEffect(() => {
@@ -333,7 +343,6 @@ function AppPage() {
   }
 
   const handleJumpToLine = useCallback((filePath, lineNumber) => {
-    setActiveTab('files')
     setCollapsedFiles(prev => ({ ...prev, [filePath]: false }))
 
     setTimeout(() => {
@@ -343,8 +352,7 @@ function AppPage() {
 
       if (!lineEl) { scrollToFile(filePath); return }
 
-      // Scroll only the diff container so headers stay fixed
-      const container = lineEl.closest('.diff-content')
+      const container = lineEl.closest('.pr-scroll-content')
       if (container) {
         const rect = lineEl.getBoundingClientRect()
         const cRect = container.getBoundingClientRect()
@@ -374,9 +382,9 @@ function AppPage() {
       path: comment.path,
       line: comment.line,
       body: comment.body,
-      severity: comment.severity,
+      importance: comment.importance,
     })
-    trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
+    trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, importance: comment.importance })
   }, [allOperations, addOperation, repoFullName, prNumber])
 
   // Provide sidebar data via context so the layout-level sidebar can read it
@@ -667,77 +675,7 @@ function AppPage() {
     }
   }
 
-  const toggleFolder = (folderPath) => {
-    setCollapsedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))
-  }
-
-  // Build file tree structure from flat file list
-  // Compute available file extensions with counts
-  const extensionCounts = useMemo(() => {
-    const counts = {}
-    parsedFiles.forEach(file => {
-      const ext = '.' + file.fileName.split('.').pop()?.toLowerCase()
-      if (ext && ext !== '.') {
-        counts[ext] = (counts[ext] || 0) + 1
-      }
-    })
-    return Object.entries(counts).sort(([a], [b]) => a.localeCompare(b))
-  }, [parsedFiles])
-
-  const hasActiveFilters = Object.values(selectedExtensions).some(Boolean) || hideViewedFiles
-
-  const clearFilters = () => {
-    setSelectedExtensions({})
-    setHideViewedFiles(false)
-    trackEvent('File Filters Cleared')
-  }
-
-  const toggleExtension = (ext) => {
-    const newState = !selectedExtensions[ext]
-    setSelectedExtensions(prev => ({ ...prev, [ext]: !prev[ext] }))
-    trackEvent('File Filter Applied', { extension: ext, enabled: newState })
-  }
-
-  const fileTree = useMemo(() => {
-    let filteredFiles = parsedFiles.filter(file => 
-      file.fileName.toLowerCase().includes(fileSearchQuery.toLowerCase())
-    )
-    
-    // Filter by selected extensions
-    const activeExtensions = Object.entries(selectedExtensions).filter(([_, v]) => v).map(([k]) => k)
-    if (activeExtensions.length > 0) {
-      filteredFiles = filteredFiles.filter(file => {
-        const ext = '.' + file.fileName.split('.').pop()?.toLowerCase()
-        return activeExtensions.includes(ext)
-      })
-    }
-    
-    // Filter out viewed files if toggle is on
-    if (hideViewedFiles) {
-      filteredFiles = filteredFiles.filter(file => !viewedFiles[file.fileName])
-    }
-    
-    const tree = {}
-    
-    filteredFiles.forEach(file => {
-      const parts = file.fileName.split('/')
-      const fileName = parts.pop()
-      const folderPath = parts.join('/')
-      
-      if (!tree[folderPath]) {
-        tree[folderPath] = []
-      }
-      tree[folderPath].push({ ...file, baseName: fileName })
-    })
-    
-    // Sort folders alphabetically
-    return Object.entries(tree).sort(([a], [b]) => a.localeCompare(b))
-  }, [parsedFiles, fileSearchQuery, selectedExtensions, hideViewedFiles, viewedFiles])
-
-  // Flat list of filtered files for the diff content
-  const filteredFiles = useMemo(() => {
-    return fileTree.flatMap(([_, files]) => files)
-  }, [fileTree])
+  const filteredFiles = parsedFiles
 
   const formatTimeAgo = (dateString) => {
     const date = new Date(dateString)
@@ -832,379 +770,222 @@ function AppPage() {
 
   return (
     <div className="app-page">
-      <div className="tabs-bar">
-        <button className="tabs-bar-back-btn" onClick={() => navigate('/app')}>
-          <ArrowLeft size={14} weight="bold" />
+      <div className="pr-top-bar" />
+
+      <div className="pr-nav-bar">
+        <button className="pr-back-btn" onClick={() => navigate('/app')}>
+          <ArrowLeft size={16} />
           Back
         </button>
+        <div className="pr-nav-bar-right">
+          {selectedPR && (
+            <div className="submit-review-container" ref={submitDropdownRef}>
+              <button 
+                className="submit-review-header-btn"
+                onClick={() => {
+                  if (!showSubmitDropdown && isOwnPR && (reviewType === 'approve' || reviewType === 'request_changes')) {
+                    setReviewType('comment')
+                  }
+                  setShowSubmitDropdown(!showSubmitDropdown)
+                }}
+              >
+                Submit review
+                {pendingComments.length > 0 && (
+                  <span className="submit-review-count">{pendingComments.length}</span>
+                )}
+                <CaretDown size={12} weight="bold" />
+              </button>
 
-        <div className="tabs-bar-divider" />
-
-        <Popover className="header-selector">
-          <PopoverButton className="header-selector-trigger">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="header-selector-icon">
-              <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
-            </svg>
-            {loadingPRs ? (
-              <span className="header-selector-text">Loading...</span>
-            ) : selectedPR ? (
-              <span className="header-selector-text">{selectedPR.head?.ref || `#${selectedPR.number}`}</span>
-            ) : (
-              <span className="header-selector-text">No PRs</span>
-            )}
-            <CaretDown size={12} className="header-selector-caret" />
-          </PopoverButton>
-          
-          {pullRequests.length > 0 && (
-            <PopoverPanel className="header-dropdown">
-              {({ close }) => (
-                <>
-                  {pullRequests.map((pr) => (
-                    <div
-                      key={pr.id}
-                      className={`header-dropdown-item ${selectedPR?.id === pr.id ? 'active' : ''}`}
-                      onClick={() => {
-                        setSelectedPR(pr)
-                        if (selectedRepo) {
-                          navigate(`/app/${selectedRepo.id}/${pr.number}`)
-                        }
-                        trackEvent('PR Selected', {
-                          pr_number: pr.number,
-                          pr_title: pr.title,
-                          repo_name: selectedRepo ? `${selectedRepo.owner.login}/${selectedRepo.name}` : undefined,
-                        })
-                        close()
-                      }}
-                    >
-                      <span className="header-dropdown-number">#{pr.number}</span>
-                      <span className="header-dropdown-text">{pr.title}</span>
-                    </div>
-                  ))}
-                  {hasNextPage && (
-                    <button
-                      className="header-dropdown-load-more"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        fetchNextPage()
-                      }}
-                      disabled={isFetchingNextPage}
-                    >
-                      {isFetchingNextPage ? (
-                        <><SpinnerGap size={14} className="spinning" /> Loading...</>
-                      ) : (
-                        'Load more'
-                      )}
+              {showSubmitDropdown && (
+                <div className="submit-review-dropdown">
+                  <div className="submit-review-dropdown-header">
+                    <span>Finish your review</span>
+                    <button className="submit-review-dropdown-close" onClick={() => setShowSubmitDropdown(false)}>
+                      &times;
                     </button>
-                  )}
-                </>
-              )}
-            </PopoverPanel>
-          )}
-        </Popover>
-
-        <div className="tabs-bar-divider" />
-
-        <button 
-          className={`tab ${activeTab === 'conversation' ? 'active' : ''}`}
-          onClick={() => { 
-            setActiveTab('conversation')
-            localStorage.setItem('appPageActiveTab', 'conversation')
-            trackEvent('Tab Changed', { tab: 'conversation' })
-          }}
-        >
-          Conversation <span className="tab-count">{timeline.filter(t => t.type === 'issue_comment' || t.type === 'review').length + (prDetails?.body ? 1 : 0)}</span>
-        </button>
-        <button 
-          className={`tab ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => { 
-            setActiveTab('files')
-            localStorage.setItem('appPageActiveTab', 'files')
-            trackEvent('Tab Changed', { tab: 'files_changed' })
-          }}
-        >
-          Files changed <span className="tab-count">{parsedFiles.length}</span>
-        </button>
-
-        <div className="tabs-bar-spacer" />
-
-        {selectedPR && owner && repoName && (
-          <OpenExternalButton
-            type="pr"
-            owner={owner}
-            repo={repoName}
-            number={selectedPR.number}
-          />
-        )}
-
-        {selectedPR && (
-          <div className="submit-review-container">
-            <button 
-              className="submit-review-header-btn"
-              onClick={() => {
-                if (!showSubmitDropdown && isOwnPR && (reviewType === 'approve' || reviewType === 'request_changes')) {
-                  setReviewType('comment')
-                }
-                setShowSubmitDropdown(!showSubmitDropdown)
-              }}
-            >
-              Submit review
-              <CaretDown size={12} weight="bold" />
-            </button>
-
-            {showSubmitDropdown && (
-              <div className="submit-review-dropdown">
-                <div className="submit-review-dropdown-header">
-                  <span>Finish your review</span>
-                  <button className="submit-review-dropdown-close" onClick={() => setShowSubmitDropdown(false)}>
-                    &times;
-                  </button>
-                </div>
-                <div className="submit-review-dropdown-body">
-                  <textarea
-                    className="submit-review-textarea"
-                    placeholder="Leave a comment"
-                    value={submitComment}
-                    onChange={(e) => setSubmitComment(e.target.value)}
-                  />
-                  <div className="submit-review-options">
-                    <label className={`submit-review-option ${reviewType === 'comment' ? 'selected' : ''}`}>
-                      <input type="radio" name="headerReviewType" value="comment"
-                        checked={reviewType === 'comment'}
-                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'comment' }) }}
-                      />
-                      <span className="submit-review-radio" />
-                      <div className="submit-review-option-content">
-                        <span className="submit-review-option-title">Comment</span>
-                        <span className="submit-review-option-desc">Submit general feedback without explicit approval.</span>
-                      </div>
-                    </label>
-                    <label className={`submit-review-option ${isOwnPR ? 'disabled' : ''} ${reviewType === 'approve' ? 'selected' : ''}`}>
-                      <input type="radio" name="headerReviewType" value="approve"
-                        checked={reviewType === 'approve'}
-                        disabled={isOwnPR}
-                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'approve' }) }}
-                      />
-                      <span className="submit-review-radio" />
-                      <div className="submit-review-option-content">
-                        <span className="submit-review-option-title">Approve</span>
-                        <span className="submit-review-option-desc">Submit feedback and approve merging these changes.</span>
-                      </div>
-                      {isOwnPR && <span className="submit-review-tooltip">Pull request authors can't approve their own pull requests.</span>}
-                    </label>
-                    <label className={`submit-review-option ${isOwnPR ? 'disabled' : ''} ${reviewType === 'request_changes' ? 'selected' : ''}`}>
-                      <input type="radio" name="headerReviewType" value="request_changes"
-                        checked={reviewType === 'request_changes'}
-                        disabled={isOwnPR}
-                        onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'request_changes' }) }}
-                      />
-                      <span className="submit-review-radio" />
-                      <div className="submit-review-option-content">
-                        <span className="submit-review-option-title">Request changes</span>
-                        <span className="submit-review-option-desc">Submit feedback suggesting changes.</span>
-                      </div>
-                      {isOwnPR && <span className="submit-review-tooltip">Pull request authors can't request changes on their own pull requests.</span>}
-                    </label>
                   </div>
-                </div>
-                <div className="submit-review-dropdown-footer">
-                  <button 
-                    className="submit-review-cancel-btn" 
-                    onClick={() => { setShowSubmitDropdown(false); trackEvent('Review Submit Cancelled') }}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    className="submit-review-submit-btn"
-                    onClick={handleSubmitReview}
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? <SpinnerGap size={16} className="spinning" /> : 'Submit review'}
-                  </button>
-                </div>
-                {submitError && (
-                  <div className="submit-review-error">
-                    {submitError}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className={`main-with-sidebar ${activeTab === 'files' ? 'has-sidebar' : ''}`}>
-        {activeTab === 'files' && (
-        <aside className="files-sidebar">
-          <div className="files-search">
-            <MagnifyingGlass size={14} className="search-icon" />
-            <input
-              type="text"
-              placeholder="Filter files..."
-              value={fileSearchQuery}
-              onChange={(e) => setFileSearchQuery(e.target.value)}
-              className="files-search-input"
-            />
-            <Popover className="filter-dropdown-container">
-              <PopoverButton className={`filter-btn ${hasActiveFilters ? 'active' : ''}`}>
-                <Funnel size={14} />
-              </PopoverButton>
-              <PopoverPanel className="filter-dropdown">
-                <div className="filter-section">
-                  <div className="filter-section-title">File extensions</div>
-                  {extensionCounts.map(([ext, count]) => (
-                    <label key={ext} className="filter-option">
-                      <input
-                        type="checkbox"
-                        checked={selectedExtensions[ext] || false}
-                        onChange={() => toggleExtension(ext)}
-                      />
-                      <span className={`filter-checkbox ${selectedExtensions[ext] ? 'checked' : ''}`}>
-                        {selectedExtensions[ext] && <Check size={10} weight="bold" />}
-                      </span>
-                      <span className="filter-option-label">{ext}</span>
-                      <span className="filter-option-count">{count}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="filter-divider" />
-                <label className="filter-option">
-                  <input
-                    type="checkbox"
-                    checked={hideViewedFiles}
-                    onChange={() => setHideViewedFiles(!hideViewedFiles)}
-                  />
-                  <span className={`filter-checkbox ${hideViewedFiles ? 'checked' : ''}`}>
-                    {hideViewedFiles && <Check size={10} weight="bold" />}
-                  </span>
-                  <span className="filter-option-label">Viewed files</span>
-                </label>
-                {hasActiveFilters && (
-                  <>
-                    <div className="filter-divider" />
-                    <button className="clear-filters-btn" onClick={clearFilters}>
-                      Clear filters
-                    </button>
-                  </>
-                )}
-              </PopoverPanel>
-            </Popover>
-          </div>
-          <div className="files-tree">
-            {fileTree.map(([folderPath, files]) => (
-              <div key={folderPath} className="folder-group">
-                {folderPath && (
-                  <div 
-                    className="folder-header"
-                    onClick={() => toggleFolder(folderPath)}
-                  >
-                    <span className="folder-chevron">
-                      {collapsedFolders[folderPath] ? <CaretRight size={12} /> : <CaretDown size={12} />}
-                    </span>
-                    {collapsedFolders[folderPath] ? <Folder size={14} /> : <FolderOpen size={14} />}
-                    <span className="folder-name">{folderPath}</span>
-                  </div>
-                )}
-                {!collapsedFolders[folderPath] && (
-                  <div className={`folder-files ${folderPath ? 'nested' : ''}`}>
-                    {files.map((file) => (
-                      <div 
-                        key={file.fileName}
-                        className={`file-tree-item ${viewedFiles[file.fileName] ? 'viewed' : ''}`}
-                        onClick={() => scrollToFile(file.fileName)}
-                      >
-                        <File size={14} className="file-icon" />
-                        <span className="file-tree-name">{file.baseName}</span>
-                        <div className="file-tree-stats">
-                          {file.additions > 0 && <span className="stat-add">+{file.additions}</span>}
-                          {file.deletions > 0 && <span className="stat-del">-{file.deletions}</span>}
+                  <div className="submit-review-dropdown-body">
+                    <textarea
+                      className="submit-review-textarea"
+                      placeholder="Leave a comment"
+                      value={submitComment}
+                      onChange={(e) => setSubmitComment(e.target.value)}
+                    />
+                    <div className="submit-review-options">
+                      <label className={`submit-review-option ${reviewType === 'comment' ? 'selected' : ''}`}>
+                        <input type="radio" name="headerReviewType" value="comment"
+                          checked={reviewType === 'comment'}
+                          onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'comment' }) }}
+                        />
+                        <span className="submit-review-radio" />
+                        <div className="submit-review-option-content">
+                          <span className="submit-review-option-title">Comment</span>
+                          <span className="submit-review-option-desc">Submit general feedback without explicit approval.</span>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </aside>
-        )}
-
-        <main className="diff-content">
-          {activeTab === 'conversation' ? (
-            <div className="conversation-view">
-              {loadingTimeline ? (
-                <div className="loading-state">Loading conversation...</div>
-              ) : prDetails ? (
-                <>
-                  {/* PR Header */}
-                  <div className="pr-header-card">
-                    <h1>
-                      {prDetails.title}
-                      <span className="pr-number-badge">#{prDetails.number}</span>
-                    </h1>
-                    <div className="pr-meta-row">
-                      <span className={`pr-state-badge ${prDetails.state} ${prDetails.merged ? 'merged' : ''}`}>
-                        {prDetails.merged ? (
-                          <>
-                            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-                              <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
-                            </svg>
-                            Merged
-                          </>
-                        ) : prDetails.state === 'open' ? (
-                          <>
-                            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-                              <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
-                            </svg>
-                            Open
-                          </>
-                        ) : (
-                          <>
-                            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-                              <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM3.25 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
-                            </svg>
-                            Closed
-                          </>
-                        )}
-                      </span>
-                      <span className="pr-meta-text">
-                        <strong>{prDetails.user?.login}</strong> wants to merge {prDetails.commits || 0} commits into{' '}
-                        <code className="branch-name">{prDetails.base?.ref}</code> from{' '}
-                        <code className="branch-name">{prDetails.head?.ref}</code>
-                      </span>
+                      </label>
+                      <label className={`submit-review-option ${isOwnPR ? 'disabled' : ''} ${reviewType === 'approve' ? 'selected' : ''}`}>
+                        <input type="radio" name="headerReviewType" value="approve"
+                          checked={reviewType === 'approve'}
+                          disabled={isOwnPR}
+                          onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'approve' }) }}
+                        />
+                        <span className="submit-review-radio" />
+                        <div className="submit-review-option-content">
+                          <span className="submit-review-option-title">Approve</span>
+                          <span className="submit-review-option-desc">Submit feedback and approve merging these changes.</span>
+                        </div>
+                        {isOwnPR && <span className="submit-review-tooltip">Pull request authors can't approve their own pull requests.</span>}
+                      </label>
+                      <label className={`submit-review-option ${isOwnPR ? 'disabled' : ''} ${reviewType === 'request_changes' ? 'selected' : ''}`}>
+                        <input type="radio" name="headerReviewType" value="request_changes"
+                          checked={reviewType === 'request_changes'}
+                          disabled={isOwnPR}
+                          onChange={(e) => { setReviewType(e.target.value); trackEvent('Review Type Selected', { type: 'request_changes' }) }}
+                        />
+                        <span className="submit-review-radio" />
+                        <div className="submit-review-option-content">
+                          <span className="submit-review-option-title">Request changes</span>
+                          <span className="submit-review-option-desc">Submit feedback suggesting changes.</span>
+                        </div>
+                        {isOwnPR && <span className="submit-review-tooltip">Pull request authors can't request changes on their own pull requests.</span>}
+                      </label>
                     </div>
                   </div>
-
-                  {/* PR Description */}
-                  {prDetails.body && (
-                    <div className="comment-card pr-description">
-                      <div className="comment-header">
-                        <img src={prDetails.user?.avatar_url} alt="" className="comment-avatar" />
-                        <span className="comment-author">{prDetails.user?.login}</span>
-                        <span className="comment-time">commented {formatTimeAgo(prDetails.created_at)}</span>
-                        {prDetails.author_association && prDetails.author_association !== 'NONE' && (
-                          <span className="author-badge">{prDetails.author_association.toLowerCase()}</span>
-                        )}
-                      </div>
-                      <div className="comment-body markdown-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{prDetails.body}</ReactMarkdown>
-                      </div>
+                  <div className="submit-review-dropdown-footer">
+                    <button 
+                      className="submit-review-cancel-btn" 
+                      onClick={() => { setShowSubmitDropdown(false); trackEvent('Review Submit Cancelled') }}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className="submit-review-submit-btn"
+                      onClick={handleSubmitReview}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? <SpinnerGap size={16} className="spinning" /> : 'Submit review'}
+                    </button>
+                  </div>
+                  {submitError && (
+                    <div className="submit-review-error">
+                      {submitError}
                     </div>
                   )}
-
-                  {/* Timeline */}
-                  <div className="timeline">
-                    {timeline.map((item, index) => renderTimelineItem(item, index))}
-                  </div>
-                </>
-              ) : (
-                <div className="empty-state">Select a pull request to view</div>
+                </div>
               )}
             </div>
-          ) : loadingDiff ? (
-            <div className="loading-state">Loading diff...</div>
-          ) : filteredFiles.length > 0 ? (
-            <div className="files-diff">
+          )}
+          {selectedPR && owner && repoName && (
+            <OpenExternalButton
+              type="pr"
+              owner={owner}
+              repo={repoName}
+              number={selectedPR.number}
+            />
+          )}
+        </div>
+      </div>
+
+      <main className="pr-scroll-content">
+        <div className="conversation-view">
+          {(() => {
+            const prTitle = prDetails?.title || selectedPR?.title || location.state?.prTitle
+            const prDisplayNumber = prDetails?.number || selectedPR?.number || location.state?.prNumber || urlPrNumber
+            return (
+              <>
+                {/* PR Header — rendered immediately from nav state, no API wait */}
+                {prTitle && (
+                  <div className="pr-header-card">
+                    <h1 style={{ viewTransitionName: 'pr-title' }}>
+                      {prTitle}
+                      {prDisplayNumber && <span className="pr-number-badge">#{prDisplayNumber}</span>}
+                    </h1>
+                    {prDetails && (
+                      <div className="pr-meta-row">
+                        <span className={`pr-state-badge ${prDetails.state} ${prDetails.merged ? 'merged' : ''}`}>
+                          {prDetails.merged ? (
+                            <>
+                              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+                                <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
+                              </svg>
+                              Merged
+                            </>
+                          ) : prDetails.state === 'open' ? (
+                            <>
+                              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+                                <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
+                              </svg>
+                              Open
+                            </>
+                          ) : (
+                            <>
+                              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+                                <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM3.25 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
+                              </svg>
+                              Closed
+                            </>
+                          )}
+                        </span>
+                        <span className="pr-meta-text">
+                          <strong>{prDetails.user?.login}</strong> wants to merge {prDetails.commits || 0} commit{prDetails.commits !== 1 ? 's' : ''} into{' '}
+                          <code className="branch-name">{prDetails.base?.ref}</code> from{' '}
+                          <code className="branch-name">{prDetails.head?.ref}</code>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {prDetails && (
+                  <>
+                {/* PR Description */}
+                {prDetails.body && (
+                <div className="comment-card pr-description">
+                  <div className="comment-header">
+                    <img src={prDetails.user?.avatar_url} alt="" className="comment-avatar" />
+                    <span className="comment-author">{prDetails.user?.login}</span>
+                    <span className="comment-time">commented {formatTimeAgo(prDetails.created_at)}</span>
+                    {prDetails.author_association && prDetails.author_association !== 'NONE' && (
+                      <span className="author-badge">{prDetails.author_association.toLowerCase()}</span>
+                    )}
+                  </div>
+                  <div className="comment-body markdown-body">
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkEmoji]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{prDetails.body}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
+
+              {/* Timeline */}
+              {timeline.length > 0 && (
+                <div className="timeline-fold">
+                  <div className={`timeline ${timelineExpanded ? 'expanded' : 'collapsed'}`}>
+                    {timeline.map((item, index) => renderTimelineItem(item, index))}
+                  </div>
+                  {!timelineExpanded && timeline.length > 0 && (
+                    <div className="timeline-fold-footer">
+                      <div className="timeline-fold-fade" />
+                      <button className="timeline-show-more" onClick={() => setTimelineExpanded(true)}>
+                        Show {timeline.length} discussion comment{timeline.length !== 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Files Changed */}
+              <div className="files-changed-section">
+                <div className="files-changed-header">
+                  <h2 className="files-changed-title">
+                    Files changed
+                    <span className="files-changed-count">{parsedFiles.length}</span>
+                  </h2>
+                </div>
+
+                {loadingDiff ? (
+                  <div className="loading-state">Loading diff...</div>
+                ) : filteredFiles.length > 0 ? (
+                  <div className="files-diff">
               {filteredFiles.map((file) => (
                 <div 
                   key={file.fileName} 
@@ -1245,9 +1026,12 @@ function AppPage() {
                           <tbody>
                             {hunk.lines.map((line, lineIdx) => {
                               const lineNum = line.newNum || line.oldNum
-                              const lineComments = pendingComments.filter(
+                              const lineComments = line.type !== 'remove' ? pendingComments.filter(
                                 c => c.path === file.fileName && c.line === lineNum
-                              )
+                              ) : []
+                              const lineIssues = (line.type !== 'remove' && reviewIssues?.length > 0) ? reviewIssues.filter(
+                                c => c.path === file.fileName && c.line === lineNum && !dismissedIssues?.has(c.id) && !appliedIssues?.has(c.id)
+                              ) : []
                               // Check if this line falls within any multi-line comment's range
                               const isInCommentRange = pendingComments.some(
                                 c => c.path === file.fileName && c.startLine && lineNum >= c.startLine && lineNum <= c.line
@@ -1385,6 +1169,21 @@ function AppPage() {
                                           </div>
                                           )}
                                         </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {lineIssues.map(issue => (
+                                    <tr key={`issue-${issue.id}`} className="inline-issue-row">
+                                      <td colSpan={3}>
+                                        <InlineIssueCard
+                                          comment={issue}
+                                          userAvatar={sidebarUserAvatar}
+                                          userName={sidebarUserName}
+                                          onApply={onApplyIssue}
+                                          onDismiss={onDismissIssue}
+                                          applied={appliedIssues?.has(issue.id)}
+                                          dismissed={dismissedIssues?.has(issue.id)}
+                                        />
                                       </td>
                                     </tr>
                                   ))}
@@ -1569,12 +1368,17 @@ function AppPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state">
-              {pullRequests.length === 0 ? 'No pull requests assigned to you.' : 'Select a PR to view changes'}
-            </div>
+            <div className="empty-state">No files changed</div>
           )}
-        </main>
-      </div>
+              </div>
+
+                  </>
+                )}
+              </>
+            )
+          })()}
+        </div>
+      </main>
 
       <OnboardingModal />
     </div>

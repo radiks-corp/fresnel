@@ -11,6 +11,7 @@ const InboxPage = lazy(() => import('./pages/InboxPage'))
 const IssuePage = lazy(() => import('./pages/IssuePage'))
 const AppLayout = lazy(() => import('./layouts/AppLayout'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
+const ChatPage = lazy(() => import('./pages/ChatPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 const queryClient = new QueryClient({
@@ -61,8 +62,9 @@ function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/app" replace />} />
                 <Route path="/auth/callback" element={<OAuthCallback />} />
+                <Route path="/app" element={<InboxPage />} />
+                <Route path="/app/:repoId/chat" element={<ChatPage />} />
                 <Route element={<AppLayout />}>
-                  <Route path="/app" element={<InboxPage />} />
                   <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
                   <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
                   <Route path="/app/:repoId" element={<AppPage />} />
@@ -88,8 +90,9 @@ function App() {
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/auth/callback" element={<OAuthCallback />} />
+              <Route path="/app" element={<InboxPage />} />
+              <Route path="/app/:repoId/chat" element={<ChatPage />} />
               <Route element={<AppLayout />}>
-                <Route path="/app" element={<InboxPage />} />
                 <Route path="/app/:repoId/issues/:issueNumber" element={<IssuePage />} />
                 <Route path="/app/:repoId/:prNumber" element={<AppPage />} />
                 <Route path="/app/:repoId" element={<AppPage />} />

@@ -1497,6 +1497,15 @@ async function handleChat(req: any, res: any) {
 - \`plan_operation\`: Plan GitHub API operations (comments, labels, etc.) to be executed later by the user. Use this when the user asks you to perform GitHub actions like adding comments, changing labels, or closing issues. The user will review and execute these operations when ready. Supports \`stateReason\` for close operations: "duplicate", "not_planned", or "completed".
 - \`suggest_comment\`: Suggest an inline review comment on a specific file and line of the PR. Use this when you have a concrete, actionable suggestion — a bug, an improvement, or a concern tied to a specific line. The comment will appear as a card in the conversation that the user can add to the PR or dismiss. Use this proactively whenever you spot something worth flagging in the diff.
 
+## Comment Style
+
+Your suggested comments get posted on the user's behalf. They must sound human-written.
+
+- **Issue body**: 2-3 lines max. State the problem clearly. No essays — too much detail and you risk being wrong.
+- **Suggested comment**: Pose as a question or short statement. Not a lecture. Match the user's casual, direct voice.
+- Good: "Should this be wrapped in a try/catch?" or "This might throw if the provider isn't mounted."
+- Bad: "I recommend implementing a null safety check for the useChatStacked hook invocation to prevent potential runtime exceptions."
+
 **Important**: When exploring issues, ALWAYS use \`list_issues\` first to get all issues, then analyze them locally. Only use \`search_issues\` if you need complex full-text search.
 
 ## Duplicate Triage Rules
@@ -1658,10 +1667,12 @@ Repository: ${owner}/${repo}`
     chatTools.suggest_comment = tool({
       description: 'Suggest an inline review comment on a specific line of the PR. Use this when you have a concrete, actionable suggestion tied to a specific file and line number — for example, a bug, a potential improvement, or a security concern. The comment will appear inline in the conversation as a review card that the user can choose to add to the PR or dismiss.',
       inputSchema: z.object({
+        title: z.string().describe('A short, specific title for the issue (e.g., "Missing null check on hook", "Unused import")'),
+        importance: z.enum(['important', 'notable']).describe('important = bugs, security issues, breaking changes. notable = code quality, style, suggestions'),
+        body: z.string().describe('2-3 lines max explaining the problem. Keep it tight — no essays. Too much detail and you risk being wrong. If the issue is simple, one sentence is fine.'),
         path: z.string().describe('The file path (e.g., "src/components/Button.tsx")'),
         line: z.number().describe('The line number in the new file where the comment applies'),
-        body: z.string().describe('The review comment in markdown. Write naturally like a helpful colleague. Include code suggestions in fenced blocks if relevant.'),
-        severity: z.enum(['critical', 'high', 'medium', 'low']).describe('How important is this issue? critical = breaks things, high = significant problem, medium = should fix, low = nitpick'),
+        suggested_comment: z.string().describe('A short PR comment that sounds human-written. Pose it as a question or a brief statement — not a lecture. Match the user\'s voice. e.g., "Should this be wrapped in a try/catch?" or "This might throw if the context provider isn\'t mounted — worth adding a null check?"'),
       }),
       execute: async (comment) => {
         return {
@@ -2034,19 +2045,35 @@ ${instructions ? `## Additional Context from Reviewer\n${instructions}\n` : ''}
 
 ## How to Write Good Review Comments
 
-Write like a thoughtful senior engineer would:
-- Be direct but kind. Say "This could cause issues because..." not "ISSUE DETECTED:"
-- Explain the WHY, not just the what. Help them learn.
-- If suggesting a fix, show the code. Don't just describe it.
-- Use "we" and "let's" to be collaborative: "Let's add a null check here"
-- Keep it concise. One clear point per comment.
-- Reference the specific line and file naturally: "In \`handleSubmit\`, the async call on line 42..."
+Your comments will be posted on the user's behalf. They must sound like a real person wrote them — not an AI.
 
-Bad: "SECURITY VULNERABILITY: Input not sanitized. Severity: HIGH."
-Good: "The user input here goes straight into the SQL query - that's an injection risk. Let's use parameterized queries instead."
+### Issue descriptions (the \`body\` field)
+- 2-3 lines max. If the issue is simple, one sentence is fine.
+- No essays. Too much detail and you risk being wrong. Keep it tight.
+- State the problem clearly. If you can't explain it in 2 sentences, you don't understand it well enough.
 
-Bad: "Missing error handling detected."  
-Good: "If this API call fails, the app will crash. Worth wrapping in a try-catch and showing the user a friendly error."
+### Suggested comments (the \`suggested_comment\` field)
+- These get posted as PR comments, so they must read like a human wrote them.
+- Pose them as a question or a brief statement. Not a lecture.
+- Match the user's voice — casual, direct, collaborative.
+- One clear point per comment.
+
+### Examples
+
+**Issue body — good:**
+"useChatStacked() will throw if the ChatProvider context is not mounted in the component tree. This can occur during SSR or when the component is rendered outside the provider boundary."
+
+**Issue body — bad (too long, too robotic):**
+"SECURITY VULNERABILITY DETECTED: The function useChatStacked() is being called without proper null safety checks. This represents a potential runtime error that could cause the application to crash in production environments when the context provider is not properly initialized in the React component tree hierarchy. It is recommended that defensive programming practices be applied to ensure graceful handling of this edge case scenario."
+
+**Suggested comment — good:**
+"Should this be wrapped in a try/catch? useChatStacked() will throw if the provider isn't mounted."
+
+**Suggested comment — good:**
+"This might throw if the context provider isn't mounted — worth adding a null check?\nconst chatStacked = useChatStacked?.() ?? null;"
+
+**Suggested comment — bad (too formal, too verbose):**
+"I recommend implementing a null safety check for the useChatStacked hook invocation to prevent potential runtime exceptions when the ChatProvider context is not available in the component tree."
 
 ## Process
 
@@ -2100,10 +2127,12 @@ CRITICAL: Review the code in reading order. When you see a problem on line 15, c
 
   // Schema for review comments (GitHub PR comment shape)
   const reviewCommentSchema = z.object({
+    title: z.string().describe('A short, specific title for the issue (e.g., "Missing null check on hook", "Unused import")'),
+    importance: z.enum(['important', 'notable']).describe('important = bugs, security issues, breaking changes. notable = code quality, style, suggestions'),
+    body: z.string().describe('2-3 lines max explaining the problem. Keep it tight — no essays. Too much detail and you risk being wrong. If the issue is simple, one sentence is fine.'),
     path: z.string().describe('The file path (e.g., "src/components/Button.tsx")'),
     line: z.number().describe('The line number in the new file where the comment applies'),
-    body: z.string().describe('The review comment in markdown. Write naturally like a helpful colleague. Include code suggestions in fenced blocks if relevant.'),
-    severity: z.enum(['critical', 'high', 'medium', 'low']).describe('How important is this issue? critical = breaks things, high = significant problem, medium = should fix, low = nitpick'),
+    suggested_comment: z.string().describe('A short PR comment that sounds human-written. Pose it as a question or a brief statement — not a lecture. Match the user\'s voice. e.g., "Should this be wrapped in a try/catch?" or "This might throw if the context provider isn\'t mounted — worth adding a null check?"'),
   })
 
   const tools = {
@@ -2224,10 +2253,9 @@ app.post('/api/repos/:owner/:repo/pulls/:pull_number/review/summarize', async (r
     return res.status(400).json({ error: 'Items array is required' })
   }
 
-  // Build a compact list for the model - just severity + path + first line of body
   const compactList = items.slice(0, 30).map((item: any, i: number) => {
     const firstLine = (item.body || '').split('\n')[0].slice(0, 120)
-    return `${i + 1}. [${item.severity}] ${item.path}: ${firstLine}`
+    return `${i + 1}. [${item.importance}] ${item.title || item.path}: ${firstLine}`
   }).join('\n')
 
   try {
