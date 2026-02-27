@@ -28,10 +28,10 @@ const LensIcon = ({ className }) => (
 )
 
 const lenses = [
-  { id: 'general', label: 'General risks and issues', description: 'Find high risk issues with this code' },
-  { id: 'security', label: 'Security vulnerabilities', description: 'Identify security issues and concerns' },
-  { id: 'performance', label: 'Performance review', description: 'Find performance bottlenecks' },
-  { id: 'custom', label: 'Custom Review', description: 'Define your own review criteria' },
+  { id: 'general', label: 'General risks and issues', description: 'Find high risk issues with this code', readyText: 'Spots bugs, logic errors, and risky patterns.' },
+  { id: 'security', label: 'Security vulnerabilities', description: 'Identify security issues and concerns', readyText: 'Finds injection flaws, auth gaps, and data leaks.' },
+  { id: 'performance', label: 'Performance review', description: 'Find performance bottlenecks', readyText: 'Catches N+1 queries, memory leaks, and slow paths.' },
+  { id: 'custom', label: 'Custom Review', description: 'Define your own review criteria', readyText: 'Add your own instructions to guide the review.' },
 ]
 
 // Simple message component for Ask mode
@@ -182,46 +182,56 @@ function Reasoning({ children, isStreaming }) {
   )
 }
 
-// Review comment card
-function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, onJumpTo, applied, dismissed }) {
-  const severityColors = {
-    critical: '#dc2626',
-    high: '#ea580c',
-    medium: '#ca8a04',
-    low: '#65a30d',
-  }
-
+// Sidebar issue card (shows issue details but not the suggested comment)
+function SidebarIssueCard({ comment, onJumpTo, dismissed, applied }) {
   if (dismissed || applied) return null
+
+  const importance = comment.importance || (comment.severity === 'critical' || comment.severity === 'high' ? 'important' : 'notable')
+  const importanceLabel = importance === 'important' ? 'Important' : 'Notable'
+  const fileName = comment.path?.split('/').pop() || comment.path
 
   return (
     <div className="review-comment-card">
-      <div className="review-comment-header">
-        <img 
-          className="review-comment-avatar" 
-          src={userAvatar || 'https://avatars.githubusercontent.com/u/0?v=4'} 
-          alt={userName || 'User'}
-        />
-        <span className="review-comment-author">{userName || 'ReviewGPT'}</span>
-        <span className="review-comment-location">on {comment.path}</span>
-        <span 
-          className="review-comment-severity"
-          style={{ color: severityColors[comment.severity] }}
-        >
-          {comment.severity}
-        </span>
+      <span className={`review-comment-importance ${importance}`}>
+        {importanceLabel}
+      </span>
+      <h3 className="review-comment-title">{comment.title || 'Issue found'}</h3>
+      <p className="review-comment-body-text">{comment.body}</p>
+      <div className="review-comment-file-ref" onClick={() => onJumpTo(comment)}>
+        {fileName}:{comment.line}
       </div>
-      <div className="review-comment-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>
-          {comment.body}
-        </ReactMarkdown>
-      </div>
+    </div>
+  )
+}
+
+// Full inline card rendered in the diff view
+export function InlineIssueCard({ comment, userAvatar, userName, onApply, onDismiss, applied, dismissed }) {
+  if (dismissed || applied) return null
+
+  const importance = comment.importance || (comment.severity === 'critical' || comment.severity === 'high' ? 'important' : 'notable')
+  const importanceLabel = importance === 'important' ? 'Important' : 'Notable'
+
+  return (
+    <div className="inline-issue-card">
+      <span className={`review-comment-importance ${importance}`}>
+        {importanceLabel}
+      </span>
+      <h3 className="review-comment-title">{comment.title || 'Issue found'}</h3>
+      <p className="review-comment-body-text">{comment.body}</p>
+      {comment.suggested_comment && (
+        <div className="review-comment-suggestion">
+          <img 
+            className="review-comment-suggestion-avatar" 
+            src={userAvatar || 'https://avatars.githubusercontent.com/u/0?v=4'} 
+            alt={userName || 'User'}
+          />
+          <div className="review-comment-suggestion-content">
+            <span className="review-comment-suggestion-author">{userName || 'ReviewGPT'} <span className="review-comment-suggestion-time">now</span></span>
+            <p className="review-comment-suggestion-text">{comment.suggested_comment}</p>
+          </div>
+        </div>
+      )}
       <div className="review-comment-actions">
-        <button 
-          className="review-comment-btn show"
-          onClick={() => onJumpTo(comment)}
-        >
-          Show
-        </button>
         <div className="review-comment-actions-right">
           <button 
             className="review-comment-btn dismiss"
@@ -234,7 +244,7 @@ function ReviewCommentCard({ comment, userAvatar, userName, onApply, onDismiss, 
             onClick={() => onApply(comment.id, comment)}
             disabled={applied}
           >
-            {applied ? <><Check size={14} /> Added</> : 'Add'}
+            {applied ? <><Check size={14} /> Added</> : <><Check size={14} /> Add</>}
           </button>
         </div>
       </div>
@@ -249,7 +259,8 @@ export default function UnifiedReview({
   const { 
     onApplyComment: contextApplyComment, 
     viewedCount, 
-    totalFiles, 
+    totalFiles,
+    setSidebarData,
   } = useSidebarContext()
 
   // Read pending review comments from the global operations store
@@ -443,10 +454,10 @@ export default function UnifiedReview({
       const token = getToken()
       if (!token) return
 
-      // Send only compact data: path, severity, first line of body
       const items = reviewComments.map(c => ({
         path: c.path,
-        severity: c.severity,
+        importance: c.importance,
+        title: c.title,
         body: c.body,
       }))
 
@@ -468,7 +479,7 @@ export default function UnifiedReview({
 
   const handleApplyComment = useCallback((commentId, comment) => {
     setAppliedComments(prev => new Set([...prev, commentId]))
-    trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, severity: comment.severity })
+    trackEvent('Review Comment Applied', { file: comment.path, line: comment.line, importance: comment.importance })
     if (contextApplyComment) {
       contextApplyComment(comment)
     }
@@ -487,13 +498,25 @@ export default function UnifiedReview({
 
   const handleJumpTo = useCallback((comment) => {
     trackEvent('Review Comment Show Clicked', { file: comment.path, line: comment.line })
-    // Use navigation state so AppPage can handle the scroll
     if (repoId && prNumber) {
       navigate(`/app/${repoId}/${prNumber}`, {
         state: { jumpTo: { file: comment.path, line: comment.line } },
       })
     }
   }, [navigate, repoId, prNumber])
+
+  // Push review issues to context so AppPage can render them inline in the diff
+  useEffect(() => {
+    setSidebarData({
+      reviewIssues: reviewComments,
+      dismissedIssues: dismissedComments,
+      appliedIssues: appliedComments,
+      onDismissIssue: handleDismissComment,
+      onApplyIssue: handleApplyComment,
+      userAvatar,
+      userName,
+    })
+  }, [setSidebarData, reviewComments, dismissedComments, appliedComments, handleDismissComment, handleApplyComment, userAvatar, userName])
 
   const handleSubmit = (e) => {
     e?.preventDefault()
@@ -616,6 +639,11 @@ export default function UnifiedReview({
     </div>
   ) : (
     <div className="lens-selector-unified">
+      {selectedLens && (
+        <button className="lens-clear-btn" onClick={handleClearLens} title="Back">
+          <ArrowLeft size={14} />
+        </button>
+      )}
       <Popover className="lens-popover">
         <PopoverButton className="lens-dropdown-trigger">
           <LensIcon className="lens-icon" />
@@ -648,12 +676,6 @@ export default function UnifiedReview({
           )}
         </PopoverPanel>
       </Popover>
-      
-      {selectedLens && (
-        <button className="lens-clear-btn" onClick={handleClearLens} title="Clear lens">
-          <X size={14} />
-        </button>
-      )}
     </div>
   )
 
@@ -769,7 +791,7 @@ export default function UnifiedReview({
               </p>
             </div>
           ) : !hasMessages && !hasStarted ? (
-            <div className="ai-empty-state">
+            <div className="ai-empty-state" key={selectedLens?.id || 'ask'}>
               <ChatCircle size={40} />
               <h3 className="ai-empty-state-title">
                 {isAskMode 
@@ -781,7 +803,7 @@ export default function UnifiedReview({
                   ? (prNumber 
                       ? 'Ask questions about the code changes or get explanations.' 
                       : 'Ask questions, search issues, or explore the repository.')
-                  : 'Click Start to begin the review, or add instructions first.'}
+                  : selectedLens?.readyText || 'Click Start to begin the review, or add instructions first.'}
               </p>
             </div>
           ) : (
@@ -830,17 +852,13 @@ export default function UnifiedReview({
                       )
                     }
 
-                    // Suggested comments inline in Ask mode
+                    // Suggested comments (Ask mode) — card in sidebar, full inline card in diff
                     if (isAskMode && part.type === 'tool-suggest_comment' && part.output?.success && part.output?.comment) {
                       const comment = part.output.comment
                       return (
-                        <ReviewCommentCard
+                        <SidebarIssueCard
                           key={comment.id}
                           comment={comment}
-                          userAvatar={userAvatar}
-                          userName={userName}
-                          onApply={handleApplyComment}
-                          onDismiss={handleDismissComment}
                           onJumpTo={handleJumpTo}
                           applied={appliedComments.has(comment.id)}
                           dismissed={dismissedComments.has(comment.id)}
@@ -848,17 +866,13 @@ export default function UnifiedReview({
                       )
                     }
 
-                    // Review comments (for Review mode) - tool parts have type like 'tool-create_comment'
+                    // Review comments (Review mode) — card in sidebar
                     if (!isAskMode && part.type === 'tool-create_comment' && part.output?.success && part.output?.comment) {
                       const comment = part.output.comment
                       return (
-                        <ReviewCommentCard
+                        <SidebarIssueCard
                           key={comment.id}
                           comment={comment}
-                          userAvatar={userAvatar}
-                          userName={userName}
-                          onApply={handleApplyComment}
-                          onDismiss={handleDismissComment}
                           onJumpTo={handleJumpTo}
                           applied={appliedComments.has(comment.id)}
                           dismissed={dismissedComments.has(comment.id)}

@@ -1,90 +1,100 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { trackEvent } from '../hooks/useAnalytics'
 import { useRepos } from '../hooks/useRepos'
-import { useInboxIssues, useInboxPulls } from '../hooks/useInboxItems'
-import { useSidebarContext } from '../contexts/SidebarContext'
-import { MagnifyingGlass, GitPullRequest, CircleDashed, Funnel, CaretDown, Check, X, SpinnerGap } from '@phosphor-icons/react'
-import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
+import { useInboxPulls } from '../hooks/useInboxItems'
+import { MagnifyingGlass, CaretDown, ArrowUp, Check, X, CaretLeft, CaretRight, CaretLineLeft, CaretLineRight } from '@phosphor-icons/react'
+import { jelly } from 'ldrs'
 import OnboardingModal from '../components/OnboardingModal'
 import './InboxPage.css'
 
+jelly.register()
+
 const REVIEW_FILTERS = [
+  { label: 'Awaiting review from you', value: 'awaiting_review_from_you' },
   { label: 'No reviews', value: 'no_reviews' },
   { label: 'Review required', value: 'review_required' },
   { label: 'Approved review', value: 'approved' },
   { label: 'Changes requested', value: 'changes_requested' },
   { label: 'Reviewed by you', value: 'reviewed_by_you' },
   { label: 'Not reviewed by you', value: 'not_reviewed_by_you' },
-  { label: 'Awaiting review from you', value: 'awaiting_review_from_you' },
   { label: 'Awaiting review from you or your team', value: 'awaiting_review_from_you_or_team' },
 ]
 
-function formatTimeAgo(dateString) {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now - date
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 30) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
-
-function labelColor(color) {
-  if (!color) return {}
-  const r = parseInt(color.substring(0, 2), 16)
-  const g = parseInt(color.substring(2, 4), 16)
-  const b = parseInt(color.substring(4, 6), 16)
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return {
-    backgroundColor: `#${color}`,
-    color: luminance > 0.5 ? '#24292f' : '#fff',
-  }
-}
-
 export default function InboxPage() {
-  const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem('inboxActiveTab')
-    return saved || 'pulls'
-  })
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [reviewFilter, setReviewFilter] = useState(() => {
     return localStorage.getItem('inboxReviewFilter') ?? 'awaiting_review_from_you'
   })
+  const [selectedRepoId, setSelectedRepoId] = useState(() => {
+    return localStorage.getItem('inboxSelectedRepo') || null
+  })
+  const [orgOpen, setOrgOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [showClosed, setShowClosed] = useState(false)
+  const [transitioningPRId, setTransitioningPRId] = useState(null)
+  const [promptText, setPromptText] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 10
+
+  const orgRef = useRef(null)
+  const filterRef = useRef(null)
+  const promptRef = useRef(null)
 
   const { user, loading } = useAuth()
   const navigate = useNavigate()
-  const { selectedRepo } = useSidebarContext()
-  // Debounce search query so we don't fire a request on every keystroke
+  const { data: repos = [], isLoading: loadingRepos } = useRepos()
+
+  const selectedRepo = useMemo(() => {
+    if (selectedRepoId) {
+      return repos.find(r => r.id.toString() === selectedRepoId) || repos[0] || null
+    }
+    return repos[0] || null
+  }, [repos, selectedRepoId])
+
+  useEffect(() => {
+    if (repos.length > 0 && !selectedRepoId) {
+      setSelectedRepoId(repos[0].id.toString())
+    }
+  }, [repos, selectedRepoId])
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, activeTab])
+  }, [searchQuery])
 
-  // Data fetching via react-query hooks (search is handled server-side)
-  const { data: repos = [], isLoading: loadingRepos } = useRepos()
+  useEffect(() => { setCurrentPage(1) }, [debouncedQuery, reviewFilter, showClosed, selectedRepoId])
 
   const activeRepos = selectedRepo ? [selectedRepo] : []
-  const { data: issues = [], isLoading: loadingIssues } = useInboxIssues(activeRepos, debouncedQuery)
   const {
     data: pullsData,
     isLoading: loadingPulls,
+    isFetching: fetchingPulls,
     fetchNextPage,
-    hasNextPage,
     isFetchingNextPage,
-  } = useInboxPulls(activeRepos, user?.login, debouncedQuery, reviewFilter)
-  const pulls = pullsData?.pulls ?? []
+  } = useInboxPulls(activeRepos, user?.login, debouncedQuery, reviewFilter, showClosed ? 'closed' : 'open')
+  const allPulls = pullsData?.pulls ?? []
   const pullsTotalCount = pullsData?.totalCount ?? 0
   const pullsHasMore = pullsData?.hasMore ?? false
 
-  const loadingItems = loadingIssues || loadingPulls
+  const totalPages = Math.max(1, Math.ceil(pullsTotalCount / pageSize))
+  const startIdx = (currentPage - 1) * pageSize
+  const pulls = allPulls.slice(startIdx, startIdx + pageSize)
+
+  useEffect(() => {
+    if (startIdx + pageSize > allPulls.length && pullsHasMore && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }, [currentPage, allPulls.length, pullsHasMore, isFetchingNextPage, fetchNextPage, startIdx])
+
+  const handlePromptSubmit = () => {
+    if (!promptText.trim() || !selectedRepo) return
+    const encoded = encodeURIComponent(promptText.trim())
+    navigate(`/app/${selectedRepo.id}/chat?q=${encoded}`)
+  }
 
   const handlePRClick = (pr) => {
     if (!selectedRepo) return
@@ -92,189 +102,232 @@ export default function InboxPage() {
       repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
       pr_number: pr.number,
     })
-    navigate(`/app/${selectedRepo.id}/${pr.number}`)
+    const doNavigate = () => {
+      navigate(`/app/${selectedRepo.id}/${pr.number}`, {
+        state: { prTitle: pr.title, prNumber: pr.number },
+      })
+    }
+    if (typeof document.startViewTransition === 'function') {
+      // flushSync forces a synchronous DOM update so the view-transition-name
+      // is present on the element when the browser takes its "old" snapshot
+      flushSync(() => setTransitioningPRId(pr.id))
+      document.startViewTransition(() => {
+        flushSync(() => doNavigate())
+      })
+    } else {
+      doNavigate()
+    }
   }
 
-  const handleIssueClick = (issue) => {
-    if (!selectedRepo) return
-    trackEvent('Inbox Issue Clicked', {
-      repo: `${selectedRepo.owner.login}/${selectedRepo.name}`,
-      issue_number: issue.number,
-    })
-    navigate(`/app/${selectedRepo.id}/issues/${issue.number}`)
-  }
-
-  // Items are already filtered server-side via GitHub Search API
-  const items = activeTab === 'issues' ? issues : pulls
+  useEffect(() => {
+    const handleMouseDown = (e) => {
+      if (orgRef.current && !orgRef.current.contains(e.target)) setOrgOpen(false)
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [])
 
   if (loading) return null
 
+  const orgName = selectedRepo?.owner?.login || 'Select repository'
+  const activeFilterLabel = REVIEW_FILTERS.find(f => f.value === reviewFilter)?.label || 'Filter'
+
   return (
-    <div className="inbox-layout">
-      <div className="inbox-container">
-        <div className="inbox-tabs-bar">
-          <button
-            className={`tab ${activeTab === 'pulls' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('pulls')
-              localStorage.setItem('inboxActiveTab', 'pulls')
-              trackEvent('Inbox Tab Changed', { tab: 'pulls' })
-            }}
-          >
-            Pull requests <span className="tab-count">{pullsTotalCount || pulls.length}</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('issues')
-              localStorage.setItem('inboxActiveTab', 'issues')
-              trackEvent('Inbox Tab Changed', { tab: 'issues' })
-            }}
-          >
-            Issues <span className="tab-count">{issues.length}</span>
-          </button>
-        </div>
-
-        <div className="inbox-toolbar">
-          <div className="inbox-search">
-            <MagnifyingGlass size={14} className="inbox-search-icon" />
-            <input
-              type="text"
-              placeholder={`Filter ${activeTab === 'issues' ? 'issues' : 'pull requests'}...`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="inbox-search-input"
-            />
-          </div>
-          <div className="inbox-toolbar-right">
-            {activeTab === 'pulls' && (
-              <Popover style={{ position: 'relative' }}>
-                <PopoverButton className={`inbox-review-filter-btn${reviewFilter ? ' active' : ''}`}>
-                  <Funnel size={13} weight={reviewFilter ? 'fill' : 'regular'} />
-                  {reviewFilter
-                    ? REVIEW_FILTERS.find((f) => f.value === reviewFilter)?.label
-                    : 'Reviews'}
-                  <CaretDown size={10} />
-                </PopoverButton>
-                <PopoverPanel className="inbox-review-filter-panel">
-                  {({ close }) => (
-                    <>
-                      <div className="inbox-review-filter-header">Filter by reviews</div>
-                      {reviewFilter && (
-                        <div
-                          className="inbox-review-filter-item clear"
-                          onClick={() => { setReviewFilter(null); localStorage.removeItem('inboxReviewFilter'); close() }}
-                        >
-                          <X size={12} />
-                          Clear filter
-                        </div>
-                      )}
-                      {REVIEW_FILTERS.map((f) => (
-                        <div
-                          key={f.value}
-                          className={`inbox-review-filter-item${reviewFilter === f.value ? ' active' : ''}`}
-                          onClick={() => { setReviewFilter(f.value); localStorage.setItem('inboxReviewFilter', f.value); close() }}
-                        >
-                          <span className="inbox-review-filter-check">
-                            {reviewFilter === f.value && <Check size={12} weight="bold" />}
-                          </span>
-                          {f.label}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </PopoverPanel>
-              </Popover>
+    <div className="home-page">
+      <div className="home-content">
+        {/* Org / repo selector */}
+        <div className="home-org-selector" ref={orgRef}>
+          <button className="home-org-trigger" onClick={() => setOrgOpen(o => !o)}>
+            {selectedRepo?.owner?.avatar_url && (
+              <img src={selectedRepo.owner.avatar_url} alt="" className="home-org-avatar" />
             )}
-            <span className="inbox-result-count">
-              {activeTab === 'pulls' && pullsTotalCount > pulls.length
-                ? `${pulls.length} of ${pullsTotalCount} pull requests`
-                : `${items.length} ${activeTab === 'issues' ? 'issue' : 'pull request'}${items.length !== 1 ? 's' : ''}`}
-            </span>
-          </div>
+            <span className="home-org-name">{orgName}</span>
+            <CaretDown size={14} className="home-org-caret" />
+          </button>
+
+          {orgOpen && (
+            <div className="home-org-dropdown">
+              {repos.map(repo => (
+                <div
+                  key={repo.id}
+                  className={`home-org-item${selectedRepo?.id === repo.id ? ' active' : ''}`}
+                  onClick={() => {
+                    setSelectedRepoId(repo.id.toString())
+                    localStorage.setItem('inboxSelectedRepo', repo.id.toString())
+                    setOrgOpen(false)
+                    trackEvent('Repo Selected', { repo: `${repo.owner.login}/${repo.name}` })
+                  }}
+                >
+                  <img src={repo.owner.avatar_url} alt="" className="home-org-item-avatar" />
+                  <span>{repo.owner.login}/{repo.name}</span>
+                  {selectedRepo?.id === repo.id && <Check size={14} weight="bold" className="home-org-item-check" />}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="inbox-list">
-          {loadingRepos || loadingItems ? (
-            <div className="inbox-empty">Loading...</div>
-          ) : items.length === 0 ? (
-            <div className="inbox-empty">
-              {searchQuery
-                ? `No ${activeTab === 'issues' ? 'issues' : 'pull requests'} matching "${searchQuery}"`
-                : `No open ${activeTab === 'issues' ? 'issues' : 'pull requests'}`}
-            </div>
-          ) : (
-            <>
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="inbox-row"
-                onClick={() => activeTab === 'pulls' ? handlePRClick(item) : handleIssueClick(item)}
-              >
-                <div className="inbox-row-icon">
-                  {activeTab === 'pulls' ? (
-                    item.draft
-                      ? <GitPullRequest size={16} className="inbox-icon draft" />
-                      : <GitPullRequest size={16} className="inbox-icon open" />
-                  ) : (
-                    <CircleDashed size={16} className="inbox-icon issue-open" />
-                  )}
-                </div>
+        {/* AI prompt area */}
+        <div className="home-prompt-box" onClick={() => promptRef.current?.focus()}>
+          <textarea
+            ref={promptRef}
+            className="home-prompt-input"
+            placeholder="Ask ReviewGPT to spot issues, review and search code"
+            rows={3}
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handlePromptSubmit()
+              }
+            }}
+          />
+          <button className="home-prompt-submit" aria-label="Submit prompt" onClick={handlePromptSubmit}>
+            <ArrowUp size={18} weight="bold" />
+          </button>
+        </div>
 
-                <div className="inbox-row-content">
-                  <div className="inbox-row-title-line">
-                    <span className="inbox-row-title">{item.title}</span>
-                    {item.labels?.map((label) => (
-                      <span key={label.id} className="inbox-label" style={labelColor(label.color)}>
-                        {label.name}
-                      </span>
+        {/* Pull Requests section */}
+        <div className="home-pr-section">
+          <div className="home-pr-header">
+            <div className="home-pr-header-left">
+              <span className="home-pr-title">Pull Requests</span>
+              <span className="home-pr-count">{pullsTotalCount || pulls.length} open</span>
+              {(loadingRepos || fetchingPulls) && (
+                <l-jelly size="18" speed="0.9" color="#9c9b99" />
+              )}
+            </div>
+            <div className="home-pr-header-right">
+              <div className="home-filter-dropdown" ref={filterRef}>
+                <button className="home-filter-trigger" onClick={() => setFilterOpen(o => !o)}>
+                  <span>{activeFilterLabel}</span>
+                  <CaretDown size={12} />
+                </button>
+                {filterOpen && (
+                  <div className="home-filter-panel">
+                    {reviewFilter && (
+                      <div
+                        className="home-filter-item clear"
+                        onClick={() => {
+                          setReviewFilter(null)
+                          localStorage.removeItem('inboxReviewFilter')
+                          setFilterOpen(false)
+                        }}
+                      >
+                        No filter
+                      </div>
+                    )}
+                    {REVIEW_FILTERS.map(f => (
+                      <div
+                        key={f.value}
+                        className={`home-filter-item${reviewFilter === f.value ? ' active' : ''}`}
+                        onClick={() => {
+                          setReviewFilter(f.value)
+                          localStorage.setItem('inboxReviewFilter', f.value)
+                          setFilterOpen(false)
+                        }}
+                      >
+                        {f.label}
+                      </div>
                     ))}
                   </div>
-                  <div className="inbox-row-meta">
-                    <span className="inbox-row-number">#{item.number}</span>
-                    <span className="inbox-row-sep">·</span>
-                    <span>{item.user?.login}</span>
-                    <span className="inbox-row-sep">·</span>
-                    <span>{formatTimeAgo(item.updated_at)}</span>
-                    {item.comments > 0 && (
-                      <>
-                        <span className="inbox-row-sep">·</span>
-                        <span className="inbox-row-comments">
-                          {item.comments} comment{item.comments !== 1 ? 's' : ''}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
+                )}
+              </div>
+              <button
+                className={`home-closed-toggle${showClosed ? ' active' : ''}`}
+                onClick={() => setShowClosed(v => !v)}
+              >
+                <span className="home-toggle-track">
+                  <span className="home-toggle-thumb" />
+                </span>
+                Closed
+              </button>
+            </div>
+          </div>
 
-                <div className="inbox-row-right">
-                  {item.assignees?.length > 0 && (
-                    <div className="inbox-row-assignees">
-                      {item.assignees.slice(0, 3).map((a) => (
-                        <img key={a.id} src={a.avatar_url} alt={a.login} className="inbox-row-assignee" title={a.login} />
-                      ))}
-                    </div>
-                  )}
-                </div>
+          <div className="home-pr-list">
+            <div className="home-pr-search">
+              <MagnifyingGlass size={16} className="home-pr-search-icon" />
+              <input
+                type="text"
+                placeholder="Search pull requests..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="home-pr-search-input"
+              />
+              <kbd className="home-pr-search-shortcut">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl '}K</kbd>
+            </div>
+            {!loadingRepos && !loadingPulls && pulls.length === 0 ? (
+              <div className="home-pr-empty">
+                {searchQuery
+                  ? `No pull requests matching "${searchQuery}"`
+                  : 'No open pull requests'}
               </div>
-            ))}
-            {activeTab === 'pulls' && (pullsHasMore || (pullsTotalCount > 0 && pulls.length < pullsTotalCount)) && (
-              <div className="inbox-load-more-row">
-                <button
-                  className="inbox-load-more"
-                  onClick={() => fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                >
-                  {isFetchingNextPage ? (
-                    <><SpinnerGap size={14} className="spinning" /> Loading...</>
-                  ) : (
-                    'Load more'
-                  )}
-                </button>
-              </div>
+            ) : (
+              <>
+                {pulls.map((pr) => (
+                  <div
+                    key={pr.id}
+                    className="home-pr-row"
+                    onClick={() => handlePRClick(pr)}
+                  >
+                    <img
+                      src={pr.user?.avatar_url}
+                      alt={pr.user?.login}
+                      className="home-pr-avatar"
+                    />
+                    <span
+                      className="home-pr-name"
+                      style={{ viewTransitionName: transitioningPRId === pr.id ? 'pr-title' : 'none' }}
+                    >
+                      {pr.title}
+                    </span>
+                  </div>
+                ))}
+                {totalPages > 1 && (
+                  <div className="home-pagination">
+                    <button
+                      className="home-pagination-btn"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage(1)}
+                      aria-label="First page"
+                    >
+                      <CaretLineLeft size={16} />
+                    </button>
+                    <button
+                      className="home-pagination-btn"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage(p => p - 1)}
+                      aria-label="Previous page"
+                    >
+                      <CaretLeft size={16} />
+                    </button>
+                    <span className="home-pagination-info">
+                      {currentPage} / {totalPages}
+                    </span>
+                    <button
+                      className="home-pagination-btn"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage(p => p + 1)}
+                      aria-label="Next page"
+                    >
+                      <CaretRight size={16} />
+                    </button>
+                    <button
+                      className="home-pagination-btn"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage(totalPages)}
+                      aria-label="Last page"
+                    >
+                      <CaretLineRight size={16} />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
-            </>
-          )}
+          </div>
         </div>
       </div>
 
