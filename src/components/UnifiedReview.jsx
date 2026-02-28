@@ -54,6 +54,49 @@ function TableWrapper({ children, ...props }) {
   )
 }
 
+const markdownComponents = {
+  table: TableWrapper,
+  pre({ children }) {
+    const child = Array.isArray(children) ? children[0] : children
+    if (child?.props?.className?.includes('language-')) {
+      return <>{children}</>
+    }
+    return <pre>{children}</pre>
+  },
+  code({ node, inline, className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '')
+    if (!inline && match) {
+      return (
+        <SyntaxHighlighter
+          style={oneLight}
+          language={match[1]}
+          PreTag="div"
+          wrapLongLines={true}
+          customStyle={{
+            borderRadius: '6px',
+            fontSize: '13px',
+            marginBottom: '1rem',
+            border: '1px solid #e8eaed',
+            background: '#ffffff',
+          }}
+          codeTagProps={{
+            style: {
+              background: 'transparent',
+              borderRadius: 0,
+              padding: 0,
+              border: 'none',
+            }
+          }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      )
+    }
+    return <code className={className} {...props}>{children}</code>
+  },
+}
+
 // Markdown renderer
 function MessageResponse({ children }) {
   return (
@@ -61,50 +104,7 @@ function MessageResponse({ children }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
-        components={{
-          table: TableWrapper,
-          // Strip the <pre> wrapper when it contains a syntax-highlighted block
-          // so we don't end up with two bordered boxes
-          pre({ children }) {
-            const child = Array.isArray(children) ? children[0] : children
-            if (child?.props?.className?.includes('language-')) {
-              return <>{children}</>
-            }
-            return <pre>{children}</pre>
-          },
-          code({ node, inline, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '')
-            if (!inline && match) {
-              return (
-                <SyntaxHighlighter
-                  style={oneLight}
-                  language={match[1]}
-                  PreTag="div"
-                  wrapLongLines={true}
-                  customStyle={{
-                    borderRadius: '6px',
-                    fontSize: '13px',
-                    marginBottom: '1rem',
-                    border: '1px solid #e8eaed',
-                    background: '#ffffff',
-                  }}
-                  codeTagProps={{
-                    style: {
-                      background: 'transparent',
-                      borderRadius: 0,
-                      padding: 0,
-                      border: 'none',
-                    }
-                  }}
-                  {...props}
-                >
-                  {String(children).replace(/\n$/, '')}
-                </SyntaxHighlighter>
-              )
-            }
-            return <code className={className} {...props}>{children}</code>
-          },
-        }}
+        components={markdownComponents}
       >
         {children}
       </ReactMarkdown>
@@ -196,7 +196,7 @@ function SidebarIssueCard({ comment, onJumpTo, dismissed, applied }) {
         {importanceLabel}
       </span>
       <h3 className="review-comment-title">{comment.title || 'Issue found'}</h3>
-      <p className="review-comment-body-text">{comment.body}</p>
+      <div className="review-comment-body-text"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]} components={markdownComponents}>{comment.body || ''}</ReactMarkdown></div>
       <div className="review-comment-file-ref" onClick={() => onJumpTo(comment)}>
         {fileName}:{comment.line}
       </div>
@@ -217,7 +217,7 @@ export function InlineIssueCard({ comment, userAvatar, userName, onApply, onDism
         {importanceLabel}
       </span>
       <h3 className="review-comment-title">{comment.title || 'Issue found'}</h3>
-      <p className="review-comment-body-text">{comment.body}</p>
+      <div className="review-comment-body-text"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]} components={markdownComponents}>{comment.body || ''}</ReactMarkdown></div>
       {comment.suggested_comment && (
         <div className="review-comment-suggestion">
           <img 
@@ -227,7 +227,7 @@ export function InlineIssueCard({ comment, userAvatar, userName, onApply, onDism
           />
           <div className="review-comment-suggestion-content">
             <span className="review-comment-suggestion-author">{userName || 'ReviewGPT'} <span className="review-comment-suggestion-time">now</span></span>
-            <p className="review-comment-suggestion-text">{comment.suggested_comment}</p>
+            <div className="review-comment-suggestion-text"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]} components={markdownComponents}>{comment.suggested_comment || ''}</ReactMarkdown></div>
           </div>
         </div>
       )}
@@ -740,7 +740,7 @@ export default function UnifiedReview({
                   <span className="pending-view-line">{comment.startLine ? `L${comment.startLine}-L${comment.line}` : `L${comment.line}`}</span>
                 </div>
                 <div className="pending-view-item-body">
-                  <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{comment.body}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]} components={markdownComponents}>{comment.body || ''}</ReactMarkdown>
                 </div>
               </div>
             ))}
