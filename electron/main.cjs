@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Notification, ipcMain, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 // Keep a global reference to prevent garbage collection.
@@ -16,6 +17,45 @@ Sentry.init({
   dsn: "https://1313505948be789d210f934165505f77@o4510896900276224.ingest.us.sentry.io/4510896915939328",
   enabled: !isDev,
   tracesSampleRate: 1.0,
+});
+
+// --- Auto-Updater ---
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+function sendUpdateStatus(status, info) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status, ...info });
+  }
+}
+
+autoUpdater.on('checking-for-update', () => {
+  sendUpdateStatus('checking');
+});
+
+autoUpdater.on('update-available', (info) => {
+  sendUpdateStatus('available', { version: info.version });
+});
+
+autoUpdater.on('update-not-available', () => {
+  sendUpdateStatus('not-available');
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  sendUpdateStatus('downloading', {
+    percent: Math.round(progress.percent),
+    transferred: progress.transferred,
+    total: progress.total,
+  });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  sendUpdateStatus('downloaded', { version: info.version });
+});
+
+autoUpdater.on('error', (err) => {
+  Sentry.captureException(err);
+  sendUpdateStatus('error', { message: err.message });
 });
 
 function createWindow() {
@@ -169,9 +209,39 @@ ipcMain.on('open-external', (event, url) => {
   }
 });
 
+// Auto-update IPC: renderer requests quit-and-install
+ipcMain.on('install-update', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+// Auto-update IPC: renderer requests a manual check
+ipcMain.on('check-for-updates', () => {
+  if (!isDev) {
+    autoUpdater.checkForUpdates().catch((err) => {
+      Sentry.captureException(err);
+    });
+  }
+});
+
 // App lifecycle
 app.whenReady().then(() => {
   createWindow();
+
+  // Check for updates after launch (production only)
+  if (!isDev) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        Sentry.captureException(err);
+      });
+    }, 5000);
+
+    // Re-check every 30 minutes
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        Sentry.captureException(err);
+      });
+    }, 30 * 60 * 1000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
