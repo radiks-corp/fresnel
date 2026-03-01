@@ -177,7 +177,7 @@ async function checkAndDecrementQuota(token: string): Promise<string> {
 
 // Middleware
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: '*',
   credentials: true
 }))
 app.use(express.json())
