@@ -68,7 +68,8 @@ function showReviewNotification(pr) {
   notification.on('click', () => {
     // Open the PR in the browser
     shell.openExternal(pr.html_url);
-    // Also focus the app window
+    // Focus an existing window, or recreate one if all windows were closed.
+    if (!mainWindow) createWindow();
     if (mainWindow) {
       mainWindow.show();
       mainWindow.focus();
@@ -94,7 +95,20 @@ async function pollReviewRequests(token) {
     );
 
     if (!response.ok) {
-      console.error('Failed to fetch review requests:', response.status);
+      const errorText = await response.text().catch(() => '');
+      const error = new Error(
+        `Failed to fetch review requests (${response.status} ${response.statusText || 'unknown'})` +
+        (errorText ? `: ${errorText.slice(0, 500)}` : '')
+      );
+      console.error(error.message);
+      Sentry.captureException(error, {
+        tags: { area: 'review-notifications' },
+        extra: {
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: errorText.slice(0, 2000),
+        },
+      });
       return;
     }
 
@@ -116,6 +130,7 @@ async function pollReviewRequests(token) {
     }
   } catch (error) {
     console.error('Error polling review requests:', error);
+    Sentry.captureException(error);
   }
 }
 
@@ -181,8 +196,12 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  stopPolling();
+  // Keep polling on macOS while app stays active in Dock.
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  stopPolling();
 });

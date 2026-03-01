@@ -194,6 +194,7 @@ app.get('/health', (req, res) => {
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || ''
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || ''
+const GITHUB_OAUTH_SCOPES = ['repo', 'read:org']
 
 if (IS_PRODUCTION) {
   const oauthProblems: string[] = []
@@ -289,7 +290,7 @@ app.get('/api/auth/github/authorize', async (req, res) => {
       `https://github.com/login/oauth/authorize` +
       `?client_id=${encodeURIComponent(GITHUB_CLIENT_ID)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&scope=repo` +
+      `&scope=${encodeURIComponent(GITHUB_OAUTH_SCOPES.join(' '))}` +
       `&state=${encodeURIComponent(state)}`
 
     res.json({ authUrl, sessionId })
