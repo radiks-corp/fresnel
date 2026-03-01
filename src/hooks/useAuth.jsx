@@ -16,6 +16,21 @@ const isElectron = () => {
   return typeof window !== 'undefined' && window.electronAPI?.isElectron
 }
 
+const getNotificationPermission = async (prompt = false) => {
+  if (!isElectron() || typeof window === 'undefined' || typeof window.Notification === 'undefined') {
+    return 'unsupported'
+  }
+
+  const current = window.Notification.permission
+  if (!prompt || current !== 'default') return current
+
+  try {
+    return await window.Notification.requestPermission()
+  } catch {
+    return window.Notification.permission || 'default'
+  }
+}
+
 const startElectronPolling = (token) => {
   if (isElectron() && token) {
     window.electronAPI.startReviewPolling(token)
@@ -52,7 +67,8 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
-  const fetchUser = async (accessToken) => {
+  const fetchUser = async (accessToken, options = {}) => {
+    const { promptForNotifications = false } = options
     try {
       const response = await fetch('https://api.github.com/user', {
         headers: {
@@ -68,6 +84,10 @@ export function AuthProvider({ children }) {
           github_login: userData.login,
           app_type: isElectron() ? 'electron' : 'web',
         })
+        const notificationPermission = await getNotificationPermission(promptForNotifications)
+        if (notificationPermission === 'denied') {
+          trackEvent('Desktop Notifications Disabled', { app_type: 'electron' })
+        }
         startElectronPolling(accessToken)
         return true
       }
@@ -86,7 +106,7 @@ export function AuthProvider({ children }) {
 
     if (storedToken) {
       const method = localStorage.getItem(AUTH_METHOD_KEY) || 'pat'
-      fetchUser(storedToken).then(success => {
+      fetchUser(storedToken, { promptForNotifications: false }).then(success => {
         if (success) {
           saveAuth(storedToken, method)
         } else {
@@ -102,7 +122,7 @@ export function AuthProvider({ children }) {
   // Login with PAT
   const login = async (pat) => {
     setLoading(true)
-    const success = await fetchUser(pat)
+    const success = await fetchUser(pat, { promptForNotifications: true })
     if (success) {
       saveAuth(pat, 'pat')
     }
@@ -113,7 +133,7 @@ export function AuthProvider({ children }) {
   // Login with OAuth token (already exchanged)
   const loginWithOAuth = async (accessToken) => {
     setLoading(true)
-    const success = await fetchUser(accessToken)
+    const success = await fetchUser(accessToken, { promptForNotifications: true })
     if (success) {
       saveAuth(accessToken, 'oauth')
     }
