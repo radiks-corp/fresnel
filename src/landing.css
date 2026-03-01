@@ -281,8 +281,35 @@ a.btn-chip {
 
 .buttons {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   justify-content: flex-start;
+}
+
+.browser-option-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gray-500);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.browser-option-link:hover {
+  color: var(--gray-700);
+}
+
+.browser-option-arrow {
+  display: inline-block;
+  transform: translateX(0);
+  transition: transform 0.2s ease;
+}
+
+.browser-option-link:hover .browser-option-arrow {
+  transform: translateX(4px);
 }
 
 /* Screenshot / Demo Video */
