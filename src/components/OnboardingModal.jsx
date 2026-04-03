@@ -12,6 +12,7 @@ const TOKEN_SCOPES = [
   { key: 'public_repo', label: 'public_repo', desc: 'Access public repositories', indent: true },
   { key: 'repo:invite', label: 'repo:invite', desc: 'Access repository invitations', indent: true },
   { key: 'security_events', label: 'security_events', desc: 'Read and write security events', indent: true },
+  { key: 'read:org', label: 'read:org', desc: 'Read org/team membership for team review requests' },
 ]
 
 const PAT_STEPS = 3
@@ -111,7 +112,7 @@ export default function OnboardingModal() {
     if (valid) {
       setPatSuccess(true)
     } else {
-      setPatError('Invalid token. Make sure it has repo access.')
+      setPatError('Invalid token. Make sure it has repo and read:org access.')
       trackEvent('PAT Submission Failed', { source: 'onboarding' })
     }
   }
@@ -221,7 +222,7 @@ export default function OnboardingModal() {
             <div className="onboarding-step">
               <h2 className="onboarding-title">PERSONAL ACCESS TOKEN</h2>
               <p className="onboarding-desc">Create a token</p>
-              <p className="onboarding-subdesc">Generate a Personal Access Token (classic) with the <code>repo</code> scope from your GitHub settings.</p>
+              <p className="onboarding-subdesc">Generate a Personal Access Token (classic) with the <code>repo</code> and <code>read:org</code> scopes from your GitHub settings.</p>
               <video className="onboarding-video" src="/generate-token.mp4" autoPlay loop muted playsInline />
             </div>
           )}
@@ -282,7 +283,7 @@ export default function OnboardingModal() {
         <div className="onboarding-footer">
           {showPat && (
             <a
-              href="https://github.com/settings/tokens/new?scopes=repo&description=ReviewGPT"
+              href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=ReviewGPT"
               target="_blank"
               rel="noopener noreferrer"
               className="onboarding-link"
