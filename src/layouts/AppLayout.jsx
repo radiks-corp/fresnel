@@ -8,6 +8,7 @@ import { useOperationsStore } from '../stores/operationsStore'
 import ReviewSidebar from '../components/ReviewSidebar'
 import SidebarContext from '../contexts/SidebarContext'
 import { StatusBanner } from '../components/StatusBanner'
+import UpdateNotification from '../components/UpdateNotification'
 import '../app.css'
 
 const defaultSidebarData = {
@@ -66,6 +67,7 @@ export default function AppLayout() {
         message={!isConnected ? 'Unable to connect to backend server. Some features may be unavailable.' : ''}
         onDismiss={() => {}}
       />
+      <UpdateNotification />
       <div className="app-shell">
         <ReviewSidebar
           owner={selectedRepo?.owner?.login}

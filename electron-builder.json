@@ -10,8 +10,13 @@
     "public/**/*",
     "icon.png"
   ],
+  "publish": {
+    "provider": "github",
+    "owner": "radiks-llc",
+    "repo": "fresnel"
+  },
   "mac": {
-    "target": "dmg",
+    "target": ["dmg", "zip"],
     "icon": "build/icon.icns",
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
