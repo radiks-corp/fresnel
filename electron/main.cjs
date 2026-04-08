@@ -24,8 +24,8 @@ function createWindow() {
     height: 900,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
+      contextIsolation: false,
+      nodeIntegration: true,
     },
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
