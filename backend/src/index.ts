@@ -483,6 +483,7 @@ function oauthResultPage(success: boolean, errorMessage?: string): string {
 // Get current user (validate token)
 app.get('/api/auth/me', async (req, res) => {
   const authHeader = req.headers.authorization
+  console.log('Auth header:', authHeader)
   
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' })
